@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend
+        run: uv sync --project backend --extra dev
+      - name: Install dashboard
+        run: npm ci --prefix frontend
+      - name: Test
+        run: make test
+
+  integration:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: spectarr
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.MSCONVERT_CLI_REPOSITORY || 'pgarrett-scripps/msconvert-cli' }}
+          path: msconvert-cli
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: spectarr/frontend/package-lock.json
+      - name: Install browser test dependencies
+        working-directory: spectarr/frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run clean-stack integration smoke test
+        working-directory: spectarr
+        env:
+          SPECTARR_RUN_E2E: "true"
+        run: scripts/ci-integration.sh

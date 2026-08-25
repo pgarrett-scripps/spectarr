@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spectarr-converter"
+version = "0.1.0"
+description = "Structured ProteoWizard conversion adapter for Spectarr"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["msconvert-cli>=1.2.0,<2"]
+
+[project.scripts]
+spectarr-convert = "spectarr_converter.cli:main"
+spectarr-converter-worker = "spectarr_converter.worker:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spectarr_converter"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

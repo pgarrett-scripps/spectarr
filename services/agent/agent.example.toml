@@ -1,0 +1,33 @@
+[agent]
+server_url = "https://spectarr.example"
+watch_paths = ["D:/Instrument/Exports", "D:/Instrument/OpenFormats"]
+state_db = "C:/ProgramData/Spectarr Agent/queue.sqlite3"
+agent_name = "orbitrap-01"
+
+# Leave experiment_id unset to use this agent's backend-managed inbox.
+# Set it only when every acquisition should go directly to one experiment.
+# experiment_id = "replace-with-experiment-id"
+instrument_id = "replace-with-instrument-id"
+
+poll_interval_seconds = 10
+stability_seconds = 120
+heartbeat_interval_seconds = 30
+chunk_size_bytes = 8388608
+request_timeout_seconds = 60
+retry_base_seconds = 2
+retry_max_seconds = 300
+max_attempts = 0
+
+ignore_patterns = [
+  "*.tmp",
+  "*.temp",
+  "*.partial",
+  "*.part",
+  "*.lock",
+  "*.lck",
+  "*.download",
+  "*.crdownload",
+  "*.inprogress",
+  "~*",
+  ".~lock.*",
+]

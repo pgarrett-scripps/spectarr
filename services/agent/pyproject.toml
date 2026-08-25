@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spectarr-acquisition-agent"
+version = "0.1.0"
+description = "Cross-platform acquisition watcher and resumable uploader for Spectarr"
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+spectarr-agent = "spectarr_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spectarr_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

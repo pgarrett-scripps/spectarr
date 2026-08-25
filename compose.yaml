@@ -1,0 +1,140 @@
+name: spectarr
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-spectarr}
+      POSTGRES_USER: ${POSTGRES_USER:-spectarr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spectarr}
+    volumes:
+      - spectarr-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spectarr} -d ${POSTGRES_DB:-spectarr}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+    user: "${SPECTARR_UID:-1000}:${SPECTARR_GID:-1000}"
+    environment:
+      SPECTARR_DATABASE_URL: ${SPECTARR_DATABASE_URL:-postgresql+psycopg://spectarr:spectarr@postgres:5432/spectarr}
+      SPECTARR_STORAGE_ROOT: /data/storage
+      SPECTARR_LIBRARY_ROOT: /data/storage/library
+      SPECTARR_LIBRARY_LINK_MODE: ${SPECTARR_LIBRARY_LINK_MODE:-auto}
+      SPECTARR_LIBRARY_PROJECT_TEMPLATE: ${SPECTARR_LIBRARY_PROJECT_TEMPLATE:-{project_name}__{project_id:8}}
+      SPECTARR_LIBRARY_FILENAME_TEMPLATE: ${SPECTARR_LIBRARY_FILENAME_TEMPLATE:-{run_name}__{sample_name}__{run_id:8}{extension}}
+      SPECTARR_MIGRATION_ROOT: /app
+      SPECTARR_IMPORT_ROOTS: '["/imports"]'
+      SPECTARR_CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
+      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:-spectarr-local-worker}
+      SPECTARR_AUTH_ENABLED: ${SPECTARR_AUTH_ENABLED:-true}
+      SPECTARR_AUTH_MODE: ${SPECTARR_AUTH_MODE:-password}
+      SPECTARR_SESSION_HOURS: ${SPECTARR_SESSION_HOURS:-24}
+      SPECTARR_LOCAL_USER: ${SPECTARR_LOCAL_USER:-admin}
+      SPECTARR_ALLOW_REMOTE_NO_AUTH: ${SPECTARR_ALLOW_REMOTE_NO_AUTH:-false}
+      SPECTARR_BIND_ADDRESS: ${SPECTARR_BIND_ADDRESS:-127.0.0.1}
+      SPECTARR_SECRET_KEY: ${SPECTARR_SECRET_KEY:-spectarr-local-development-secret-change-me}
+    volumes:
+      - ./data:/data
+      - ./imports:/imports:ro
+    ports:
+      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_API_PORT:-8280}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request\nurllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  converter:
+    build:
+      context: ./services/converter
+      additional_contexts:
+        msconvert_cli: ../msconvert-cli
+    environment:
+      SPECTARR_API_URL: http://api:8000
+      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:-spectarr-local-worker}
+      SPECTARR_SOURCE_ROOTS: /data/storage
+      SPECTARR_LOCAL_STORAGE_ROOT: /data/storage
+      SPECTARR_SCRATCH_ROOT: /data/scratch
+      SPECTARR_HEARTBEAT_SECONDS: ${SPECTARR_CONVERTER_HEARTBEAT_SECONDS:-5}
+      SPECTARR_CONTAINER_DATA_ROOT: /data
+      SPECTARR_DOCKER_DATA_ROOT: ${SPECTARR_DOCKER_DATA_ROOT:-${PWD}/data}
+      SPECTARR_MSCONVERT_IMAGE: ${SPECTARR_MSCONVERT_IMAGE:-proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:3.0.26121-ed8dc8a}
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  extractor:
+    build:
+      context: ./services/extractor
+      args:
+        SPECTARR_INSTALL_OPENMASSSPEC: ${SPECTARR_INSTALL_OPENMASSSPEC:-true}
+    environment:
+      SPECTARR_API_URL: http://api:8000
+      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:-spectarr-local-worker}
+      SPECTARR_SERVICE_TOKEN: ${SPECTARR_EXTRACTOR_TOKEN:-}
+      SPECTARR_LOCAL_STORAGE_ROOT: /data/storage
+      SPECTARR_WORKER_ID: extractor-1
+      SPECTARR_HEARTBEAT_SECONDS: 10
+    volumes:
+      - ./data/storage:/data/storage:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  webhooks:
+    build:
+      context: ./services/webhooks
+    environment:
+      SPECTARR_URL: http://api:8000
+      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:-spectarr-local-worker}
+      SPECTARR_WORKER_ID: webhooks-1
+      SPECTARR_WEBHOOK_ALLOW_HTTP: ${SPECTARR_WEBHOOK_ALLOW_HTTP:-false}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mcp:
+    build:
+      context: ./services/mcp
+    environment:
+      SPECTARR_API_URL: http://api:8000
+      SPECTARR_MCP_TRANSPORT: http
+      SPECTARR_MCP_ALLOW_WRITES: ${SPECTARR_MCP_ALLOW_WRITES:-false}
+      SPECTARR_API_KEY: ${SPECTARR_API_KEY:-}
+      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:-spectarr-local-worker}
+    ports:
+      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_MCP_PORT:-8281}:8001"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api/v1
+    ports:
+      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_DASHBOARD_PORT:-3280}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  spectarr-postgres:

@@ -1,0 +1,15 @@
+{
+  "project": "Spectarr demonstration",
+  "experiment": "Initial import",
+  "sample": "HeLa digest",
+  "run": "demo-spectrum-list",
+  "source_class": "spectrum_list",
+  "instrument": "Example instrument",
+  "artifacts": [
+    {
+      "path": "demo.mgf",
+      "format": "mgf",
+      "role": "source"
+    }
+  ]
+}

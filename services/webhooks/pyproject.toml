@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spectarr-webhook-worker"
+version = "0.1.0"
+description = "Lease-based signed webhook delivery worker for Spectarr"
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+spectarr-webhook-worker = "spectarr_webhooks.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spectarr_webhooks"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

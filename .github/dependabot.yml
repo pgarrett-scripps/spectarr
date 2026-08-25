@@ -1,0 +1,66 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      backend-dependencies:
+        patterns:
+          - "*"
+  - package-ecosystem: pip
+    directory: /services/agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /services/converter
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /services/extractor
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /services/mcp
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /services/webhooks
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      dashboard-dependencies:
+        patterns:
+          - "*"
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/converter
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/extractor
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/mcp
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/webhooks
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spectarr-mcp"
+version = "0.1.0"
+description = "Model Context Protocol server for the Spectarr REST API"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+spectarr-mcp = "spectarr_mcp.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spectarr_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

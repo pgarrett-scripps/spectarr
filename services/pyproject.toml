@@ -1,0 +1,12 @@
+[project]
+name = "spectarr-services"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["agent/tests", "converter/tests", "extractor/tests", "mcp/tests", "webhooks/tests"]
+pythonpath = ["agent/src", "converter/src", "extractor/src", "mcp/src", "webhooks/src"]

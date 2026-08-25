@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]
+          then
+            python3 scripts/check_version.py --tag "$GITHUB_REF_NAME"
+          else
+            python3 scripts/check_version.py
+          fi
+
+  images:
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: backend
+            dockerfile: backend/Dockerfile
+          - name: dashboard
+            context: frontend
+            dockerfile: frontend/Dockerfile
+          - name: extractor
+            context: services/extractor
+            dockerfile: services/extractor/Dockerfile
+          - name: mcp
+            context: services/mcp
+            dockerfile: services/mcp/Dockerfile
+          - name: webhooks
+            context: services/webhooks
+            dockerfile: services/webhooks/Dockerfile
+          - name: converter
+            context: services/converter
+            dockerfile: services/converter/Dockerfile
+            mscli: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out MSCLI
+        if: matrix.mscli
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.MSCONVERT_CLI_REPOSITORY || 'pgarrett-scripps/msconvert-cli' }}
+          ref: ${{ vars.MSCONVERT_CLI_REF || 'main' }}
+          path: distribution/msconvert-cli
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: names
+        name: Resolve image names
+        shell: bash
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          version=$(tr -d '[:space:]' < VERSION)
+          echo "image=${REGISTRY}/${owner}/spectarr-${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.names.outputs.image }}:${{ steps.names.outputs.version }}
+            ${{ steps.names.outputs.image }}:latest
+          build-contexts: ${{ matrix.mscli && 'msconvert_cli=./distribution/msconvert-cli' || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.names.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  bundle:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build acquisition agent wheel
+        run: python -m pip wheel --no-deps --wheel-dir release/dist services/agent
+      - name: Build release bundle
+        shell: bash
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          mkdir -p release/bundle
+          cp release/compose.yaml release/.env.example release/README.md release/bundle/
+          cp release/dist/*.whl release/bundle/
+          mkdir -p release/bundle/scripts release/bundle/examples
+          cp scripts/backup.sh scripts/verify-backup.sh scripts/restore-test.sh scripts/smoke_test.py scripts/release-rehearsal.sh release/bundle/scripts/
+          cp examples/demo.mgf release/bundle/examples/
+          cp VERSION CHANGELOG.md SECURITY.md LICENSE NOTICE release/bundle/
+          cp docs/release-checklist.md release/bundle/
+          tar -C release/bundle -czf "release/spectarr-${version}.tar.gz" .
+          (
+            cd release
+            sha256sum "spectarr-${version}.tar.gz" > "spectarr-${version}.tar.gz.sha256"
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spectarr-release-bundle
+          path: |
+            release/spectarr-*.tar.gz
+            release/spectarr-*.sha256
+
+  smoke:
+    needs: [images, bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: spectarr-release-bundle
+          path: candidate
+      - name: Verify and extract candidate bundle
+        working-directory: candidate
+        run: |
+          sha256sum --check spectarr-*.tar.gz.sha256
+          mkdir install
+          tar -C install -xzf spectarr-*.tar.gz
+      - name: Rehearse installation, ingestion, backup, and restore
+        working-directory: candidate/install
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          SPECTARR_IMAGE_PREFIX="${REGISTRY}/${owner}/spectarr" scripts/release-rehearsal.sh
+
+  publish:
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: spectarr-release-bundle
+          path: release
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          generate_release_notes: true
+          files: |
+            release/spectarr-*.tar.gz
+            release/spectarr-*.sha256
