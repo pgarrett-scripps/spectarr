@@ -94,7 +94,7 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
-      - uses: actions/attest-build-provenance@v3
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.names.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
