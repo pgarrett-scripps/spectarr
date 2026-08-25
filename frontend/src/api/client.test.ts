@@ -75,7 +75,9 @@ describe('API client', () => {
     setAccessToken('download-token')
     const fetchMock = vi.fn().mockResolvedValue(new Response('spectrum data', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    await expect(downloadArtifact('artifact 1')).resolves.toBeInstanceOf(Blob)
+    const artifact = await downloadArtifact('artifact 1')
+    expect(artifact.size).toBe(13)
+    expect(artifact.type).toBe('text/plain;charset=utf-8')
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/artifacts/artifact%201/download', {
       headers: { Authorization: 'Bearer download-token' }
     })
