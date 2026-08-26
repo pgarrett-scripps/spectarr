@@ -94,11 +94,8 @@ export function RunDetail() {
 
     <div className="detail-layout">
       <div className="detail-main">
-        <Panel title="Total ion chromatogram" subtitle={run.extraction ? `Extracted by ${run.extraction.extractor} ${run.extraction.extractorVersion}` : 'No extraction result is available'}>
-          <Chromatogram points={run.extraction?.tic ?? []} />
-        </Panel>
-        <Panel title="Spectrum viewer" subtitle="Spxtacular spectrum transport from RAW, mzML, MGF, or MS2 artifacts">
-          <SpectrumExplorer artifacts={run.artifacts} preferredMsLevel={preferredSpectrumMsLevel(run)} spectrumCounts={run.extraction?.spectraByMsLevel} />
+        <Panel title="Spectrum viewer" subtitle="Select from the chromatogram, search directly, or browse nearby spectra">
+          <SpectrumExplorer artifacts={run.artifacts} preferredMsLevel={preferredSpectrumMsLevel(run)} spectrumCounts={run.extraction?.spectraByMsLevel} chromatogram={run.extraction?.tic ?? []} />
         </Panel>
         <Panel title="Scientific metadata" subtitle="Versioned observations extracted from the source artifact">
           {run.extraction ? <div className="science-grid">
@@ -170,25 +167,4 @@ function preferredSpectrumMsLevel(run: Run): 1 | 2 {
 
 function ScienceValue({ label, value }: { label: string, value: string }) {
   return <div><span>{label}</span><strong>{value}</strong></div>
-}
-
-function Chromatogram({ points }: { points: Array<{ time: number, intensity: number }> }) {
-  if (points.length < 2) return <div className="settings-placeholder">No chromatogram preview has been generated for this run.</div>
-  const width = 800
-  const height = 190
-  const minTime = Math.min(...points.map(point => point.time))
-  const maxTime = Math.max(...points.map(point => point.time))
-  const maxIntensity = Math.max(...points.map(point => point.intensity), 1)
-  const coordinates = points.map(point => {
-    const x = ((point.time - minTime) / Math.max(maxTime - minTime, 1)) * width
-    const y = height - (point.intensity / maxIntensity) * (height - 10)
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
-  return <div className="chart-wrap">
-    <svg className="chromatogram" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="Total ion chromatogram">
-      <g className="chart-grid">{[0.25, 0.5, 0.75].map(ratio => <line key={ratio} x1="0" x2={width} y1={height * ratio} y2={height * ratio} />)}</g>
-      <polyline className="chart-line" points={coordinates} />
-    </svg>
-    <div className="chart-axis"><span>{minTime.toFixed(1)} min</span><span>Retention time</span><span>{maxTime.toFixed(1)} min</span></div>
-  </div>
 }

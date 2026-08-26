@@ -1,4 +1,4 @@
-import type { ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
+import type { ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpectrumCatalogPage, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const TOKEN_KEY = 'spectarr_access_token'
@@ -911,6 +911,18 @@ export const api = {
     if (selection.scanNumber !== undefined) query.set('scan_number', String(selection.scanNumber))
     if (selection.nativeId !== undefined) query.set('native_id', selection.nativeId)
     return request(`/artifacts/${encodeURIComponent(artifactId)}/spectrum?${query.toString()}`)
+  },
+  spectra: async (artifactId: string, selection: { msLevel: 1 | 2, offset?: number, limit?: number, rtSeconds?: number, scanNumber?: number, nativeId?: string, precursorMz?: number }): Promise<SpectrumCatalogPage> => {
+    const query = new URLSearchParams({
+      ms_level: String(selection.msLevel),
+      offset: String(selection.offset ?? 0),
+      limit: String(selection.limit ?? 25)
+    })
+    if (selection.rtSeconds !== undefined) query.set('rt_seconds', String(selection.rtSeconds))
+    if (selection.scanNumber !== undefined) query.set('scan_number', String(selection.scanNumber))
+    if (selection.nativeId !== undefined) query.set('native_id', selection.nativeId)
+    if (selection.precursorMz !== undefined) query.set('precursor_mz', String(selection.precursorMz))
+    return request(`/artifacts/${encodeURIComponent(artifactId)}/spectra?${query.toString()}`)
   },
   generateArtifact: async (runId: string, format: ConversionFormat, inputArtifactId?: string, recipeId?: string) => normalizeJob(await request(`/runs/${encodeURIComponent(runId)}/derivatives`, {
     method: 'POST',

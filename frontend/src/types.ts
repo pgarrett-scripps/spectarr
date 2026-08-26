@@ -95,6 +95,28 @@ export interface SpxtacularSpectrum {
   metadata: SpxtacularSpectrumMetadata
 }
 
+export interface SpectrumSummary {
+  index: number
+  native_id: string | null
+  scan_number: number | null
+  ms_level: number
+  rt: number | null
+  precursor_mz: number | null
+  precursor_charge: number | null
+  peak_count: number
+  total_ion_current: number | null
+}
+
+export interface SpectrumCatalogPage {
+  schema: 'spectarr.spectrum-catalog'
+  schema_version: 1
+  total: number
+  offset: number
+  limit: number
+  match_index: number | null
+  items: SpectrumSummary[]
+}
+
 export interface ExtractionSummary {
   id: string
   status: 'queued' | 'running' | 'succeeded' | 'failed'

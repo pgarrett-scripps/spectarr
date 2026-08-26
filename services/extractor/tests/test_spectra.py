@@ -6,8 +6,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from spectarr_extractor.spectra import SpectrumAccessError, SpxtacularSpectrumSource, _spxtacular_reader
-from spectarr_extractor.spectrum_server import process_spectrum_request
+from spectarr_extractor.spectra import (
+    SpectrumAccessError,
+    SpxtacularSpectrumSource,
+    _spxtacular_reader,
+)
+from spectarr_extractor.spectrum_server import (
+    process_catalog_request,
+    process_spectrum_request,
+)
 
 
 def payload(scan: int) -> dict:
@@ -29,7 +36,14 @@ def payload(scan: int) -> dict:
 class FakeSpectrum:
     def __init__(self, scan: int) -> None:
         self.scan_number = scan
+        self.ms_level = 1 if scan % 2 else 2
         self.native_id = f"scan={scan}"
+        self.rt = float(scan * 10)
+        self.total_ion_current = float(scan * 100)
+        self.precursors = (
+            [SimpleNamespace(mz=400.0 + scan, charge=2)] if self.ms_level == 2 else []
+        )
+        self.mz = [100.0, 200.0]
 
     def to_dict(self) -> dict:
         return payload(self.scan_number)
@@ -70,7 +84,9 @@ class SpectrumSourceTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / "sample.mgf").write_text("fixture")
-        self.source = SpxtacularSpectrumSource(self.root, FakeReader)
+        self.source = SpxtacularSpectrumSource(
+            self.root, FakeReader, prewarm_catalogs=False
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -87,12 +103,42 @@ class SpectrumSourceTests(unittest.TestCase):
 
     def test_native_id_uses_random_access_lookup(self) -> None:
         reader = FakeReader(self.root / "sample.mgf")
-        source = SpxtacularSpectrumSource(self.root, lambda _path: reader)
+        source = SpxtacularSpectrumSource(
+            self.root, lambda _path: reader, prewarm_catalogs=False
+        )
 
         result = source.read("sample.mgf", ms_level=2, native_id="scan=4")
 
         self.assertEqual(result["metadata"]["scan_number"], 4)
         self.assertEqual(reader.ms2.lookups, ["scan=4"])
+
+    def test_browses_cached_spectrum_summaries_and_finds_nearest_rt(self) -> None:
+        page = self.source.browse("sample.mgf", ms_level=2, limit=10)
+        nearest = self.source.browse(
+            "sample.mgf", ms_level=2, limit=10, rt_seconds=39.0
+        )
+
+        self.assertEqual(page["total"], 2)
+        self.assertEqual(page["items"][0]["scan_number"], 2)
+        self.assertEqual(page["items"][0]["peak_count"], 2)
+        self.assertEqual(nearest["match_index"], 1)
+        self.assertEqual(nearest["items"][1]["scan_number"], 4)
+
+    def test_catalog_is_reused_for_unchanged_source(self) -> None:
+        calls = 0
+
+        def reader(path: Path) -> FakeReader:
+            nonlocal calls
+            calls += 1
+            return FakeReader(path)
+
+        source = SpxtacularSpectrumSource(
+            self.root, reader, prewarm_catalogs=False
+        )
+        source.browse("sample.mgf", ms_level=2)
+        source.browse("sample.mgf", ms_level=2, precursor_mz=404.0)
+
+        self.assertEqual(calls, 1)
 
     def test_rejects_path_escape(self) -> None:
         with self.assertRaisesRegex(SpectrumAccessError, "escapes") as raised:
@@ -110,7 +156,7 @@ class SpectrumSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(SpectrumAccessError, "Exactly one"):
             self.source.read("sample.mgf", ms_level=2)
         with self.assertRaisesRegex(SpectrumAccessError, "Exactly one"):
-                self.source.read("sample.mgf", ms_level=2, index=0, scan_number=2)
+            self.source.read("sample.mgf", ms_level=2, index=0, scan_number=2)
 
     def test_default_spxtacular_reader_requests_auto_disk_backed_mzml(self) -> None:
         calls = []
@@ -147,6 +193,29 @@ class FakeSource:
             raise AssertionError(selection)
         return payload(2)
 
+    def browse(self, relative_path: str, **selection: object) -> dict:
+        if relative_path != "library/sample.mgf":
+            raise AssertionError(relative_path)
+        if selection != {
+            "ms_level": 2,
+            "offset": 0,
+            "limit": 25,
+            "rt_seconds": 90.0,
+            "scan_number": None,
+            "native_id": None,
+            "precursor_mz": None,
+        }:
+            raise AssertionError(selection)
+        return {
+            "schema": "spectarr.spectrum-catalog",
+            "schema_version": 1,
+            "total": 1,
+            "offset": 0,
+            "limit": 25,
+            "match_index": 0,
+            "items": [],
+        }
+
 
 class SpectrumRequestTests(unittest.TestCase):
     def test_requires_worker_authentication(self) -> None:
@@ -171,6 +240,24 @@ class SpectrumRequestTests(unittest.TestCase):
         )
         self.assertEqual(result["schema"], "spxtacular.spectrum")
         self.assertEqual(result["metadata"]["scan_number"], 2)
+
+    def test_returns_spectrum_catalog(self) -> None:
+        result = process_catalog_request(
+            FakeSource(),  # type: ignore[arg-type]
+            "test-worker-token",
+            "test-worker-token",
+            {
+                "relative_path": "library/sample.mgf",
+                "ms_level": 2,
+                "offset": 0,
+                "limit": 25,
+                "rt_seconds": 90,
+                "scan_number": None,
+                "native_id": None,
+                "precursor_mz": None,
+            },
+        )
+        self.assertEqual(result["schema"], "spectarr.spectrum-catalog")
 
 
 if __name__ == "__main__":

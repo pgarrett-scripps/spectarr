@@ -105,7 +105,7 @@ OpenMassSpec is enabled by default for direct metadata extraction from supported
 
 See [extractor documentation](services/extractor/README.md).
 
-The run detail dashboard includes an interactive spectrum explorer. The authenticated API proxies each request to a private Spxtacular reader container with read-only storage access. The browser receives the versioned `spxtacular.spectrum` JSON contract and can switch artifacts, MS levels, and zero-based spectrum positions without knowing the source file format. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
+The run detail dashboard includes an inline spectrum browser. The chromatogram selects the nearest spectrum by retention time, direct search supports retention time, scan number, precursor m/z, and native ID, and an expandable table provides paged browsing. The authenticated API proxies peak and catalog requests to a private Spxtacular reader container with read-only storage access. After the first spectrum is shown, a peak-free catalog warms in the background and remains cached in memory, while individual spectra continue to use the versioned `spxtacular.spectrum` JSON contract. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
 
 ## Automatic instrument uploads
 

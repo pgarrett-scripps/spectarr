@@ -951,6 +951,73 @@ async def get_artifact(artifact_id: str, session: SessionDep) -> Artifact:
     return fetch_or_404(session, Artifact, artifact_id)
 
 
+@router.get("/artifacts/{artifact_id}/spectra", tags=["spectra"])
+async def browse_artifact_spectra(
+    artifact_id: str,
+    session: SessionDep,
+    storage: StorageDep,
+    spectrum_reader: SpectrumReaderDep,
+    ms_level: int = Query(1, ge=1, le=2),
+    offset: int = Query(0, ge=0, le=10_000_000),
+    limit: int = Query(25, ge=1, le=100),
+    rt_seconds: float | None = Query(None, ge=0),
+    scan_number: int | None = Query(None, ge=0),
+    native_id: str | None = Query(None, min_length=1, max_length=2048),
+    precursor_mz: float | None = Query(None, ge=0),
+) -> dict:
+    artifact = fetch_or_404(session, Artifact, artifact_id)
+    if artifact.state == ArtifactState.MISSING:
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            "Artifact content was purged and can be regenerated",
+        )
+    if not artifact.library_path:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Artifact has not been materialized in the library",
+        )
+    finders = [
+        rt_seconds is not None,
+        scan_number is not None,
+        native_id is not None,
+        precursor_mz is not None,
+    ]
+    if sum(finders) > 1:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Choose only one spectrum catalog search",
+        )
+    source = storage.resolve_library(artifact.library_path)
+    if not source.exists():
+        raise HTTPException(
+            status.HTTP_410_GONE, "Artifact library content is missing"
+        )
+    if not source.is_relative_to(storage.root):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Spectrum reader requires the library to be located inside the shared storage root",
+        )
+    payload = {
+        "relative_path": source.relative_to(storage.root).as_posix(),
+        "ms_level": ms_level,
+        "offset": offset,
+        "limit": limit,
+        "rt_seconds": rt_seconds,
+        "scan_number": scan_number,
+        "native_id": native_id,
+        "precursor_mz": precursor_mz,
+    }
+    try:
+        return await spectrum_reader.catalog(payload)
+    except SpectrumReaderError as error:
+        mapped_status = (
+            error.status
+            if error.status in {400, 403, 404, 409, 422, 502, 503, 504}
+            else 502
+        )
+        raise HTTPException(mapped_status, str(error)) from error
+
+
 @router.get("/artifacts/{artifact_id}/spectrum", tags=["spectra"])
 async def get_artifact_spectrum(
     artifact_id: str,

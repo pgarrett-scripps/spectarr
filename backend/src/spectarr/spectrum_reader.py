@@ -32,6 +32,16 @@ class SpectrumReaderClient:
         self.transport = transport
 
     async def read(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._request("/v1/spectra", payload, "spxtacular.spectrum")
+
+    async def catalog(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._request(
+            "/v1/spectra/catalog", payload, "spectarr.spectrum-catalog"
+        )
+
+    async def _request(
+        self, path: str, payload: dict[str, Any], expected_schema: str
+    ) -> dict[str, Any]:
         if not self.base_url:
             raise SpectrumReaderError(503, "Spectrum reader is not configured")
         if not self.worker_token:
@@ -45,23 +55,25 @@ class SpectrumReaderClient:
             "X-Spectarr-Worker-Token": self.worker_token,
         }
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout_seconds, transport=self.transport
-            ) as client:
-                async with client.stream(
+            async with (
+                httpx.AsyncClient(
+                    timeout=self.timeout_seconds, transport=self.transport
+                ) as client,
+                client.stream(
                     "POST",
-                    f"{self.base_url}/v1/spectra",
+                    f"{self.base_url}{path}",
                     content=body,
                     headers=headers,
-                ) as response:
-                    content = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        content.extend(chunk)
-                        if len(content) > self.maximum_response_bytes:
-                            raise SpectrumReaderError(
-                                502,
-                                "Spectrum reader response exceeded the configured safety limit",
-                            )
+                ) as response,
+            ):
+                content = bytearray()
+                async for chunk in response.aiter_bytes():
+                    content.extend(chunk)
+                    if len(content) > self.maximum_response_bytes:
+                        raise SpectrumReaderError(
+                            502,
+                            "Spectrum reader response exceeded the configured safety limit",
+                        )
         except httpx.TimeoutException as api_error:
             raise SpectrumReaderError(504, "Spectrum reader timed out") from api_error
         except httpx.RequestError as api_error:
@@ -83,10 +95,7 @@ class SpectrumReaderClient:
             raise SpectrumReaderError(
                 502, "Spectrum reader returned a non-object response"
             )
-        if (
-            value.get("schema") != "spxtacular.spectrum"
-            or value.get("schema_version") != 1
-        ):
+        if value.get("schema") != expected_schema or value.get("schema_version") != 1:
             raise SpectrumReaderError(
                 502, "Spectrum reader returned an unsupported transport schema"
             )

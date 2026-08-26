@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SpectrumExplorer, SpectrumPlot } from './SpectrumExplorer'
-import type { Artifact, SpxtacularSpectrum } from '../types'
+import type { Artifact, SpectrumCatalogPage, SpxtacularSpectrum } from '../types'
 
 
 const artifact: Artifact = {
@@ -45,6 +45,19 @@ const spectrum: SpxtacularSpectrum = {
   }
 }
 
+const catalog: SpectrumCatalogPage = {
+  schema: 'spectarr.spectrum-catalog',
+  schema_version: 1,
+  total: 2,
+  offset: 0,
+  limit: 12,
+  match_index: 1,
+  items: [
+    { index: 0, native_id: 'scan=42', scan_number: 42, ms_level: 2, rt: 90, precursor_mz: 500.25, precursor_charge: 2, peak_count: 3, total_ion_current: 85 },
+    { index: 1, native_id: 'scan=43', scan_number: 43, ms_level: 2, rt: 96, precursor_mz: 622.31, precursor_charge: 2, peak_count: 4, total_ion_current: 120 }
+  ]
+}
+
 afterEach(cleanup)
 
 describe('SpectrumExplorer', () => {
@@ -66,6 +79,31 @@ describe('SpectrumExplorer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next spectrum' }))
 
     await waitFor(() => expect(loader).toHaveBeenLastCalledWith('artifact-1', { msLevel: 2, index: 1 }))
+  })
+
+  it('browses lightweight summaries and selects by native ID', async () => {
+    const loader = vi.fn().mockResolvedValue(spectrum)
+    const catalogLoader = vi.fn().mockResolvedValue(catalog)
+    render(<SpectrumExplorer artifacts={[artifact]} loadSpectrum={loader} loadCatalog={catalogLoader} />)
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse spectra' }))
+    expect(await screen.findByText('622.3100 (2+)')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('43'))
+
+    await waitFor(() => expect(loader).toHaveBeenLastCalledWith('artifact-1', { msLevel: 2, nativeId: 'scan=43' }))
+  })
+
+  it('finds the spectrum nearest a retention time in minutes', async () => {
+    const loader = vi.fn().mockResolvedValue(spectrum)
+    const catalogLoader = vi.fn().mockResolvedValue(catalog)
+    render(<SpectrumExplorer artifacts={[artifact]} loadSpectrum={loader} loadCatalog={catalogLoader} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Spectrum search' }), { target: { value: '1.6' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find spectrum' }))
+
+    await waitFor(() => expect(catalogLoader).toHaveBeenCalledWith('artifact-1', { msLevel: 2, limit: 12, rtSeconds: 96 }))
+    await waitFor(() => expect(loader).toHaveBeenLastCalledWith('artifact-1', { msLevel: 2, nativeId: 'scan=43' }))
   })
 
   it('uses the preferred run MS level for a RAW artifact', async () => {

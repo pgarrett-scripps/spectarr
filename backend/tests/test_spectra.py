@@ -5,11 +5,9 @@ from typing import Any
 import httpx
 import pytest
 from httpx import AsyncClient
-
 from spectarr.api import get_spectrum_reader
 from spectarr.main import app
 from spectarr.spectrum_reader import SpectrumReaderClient, SpectrumReaderError
-
 
 pytestmark = pytest.mark.anyio
 
@@ -35,16 +33,47 @@ def spectrum_payload() -> dict[str, Any]:
     }
 
 
+def catalog_payload() -> dict[str, Any]:
+    return {
+        "schema": "spectarr.spectrum-catalog",
+        "schema_version": 1,
+        "total": 1,
+        "offset": 0,
+        "limit": 25,
+        "match_index": 0,
+        "items": [
+            {
+                "index": 0,
+                "native_id": "scan=7",
+                "scan_number": 7,
+                "ms_level": 2,
+                "rt": 90.0,
+                "precursor_mz": 500.25,
+                "precursor_charge": 2,
+                "peak_count": 2,
+                "total_ion_current": 35.0,
+            }
+        ],
+    }
+
+
 class FakeSpectrumReader:
     def __init__(self, error: SpectrumReaderError | None = None) -> None:
         self.error = error
         self.requests: list[dict[str, Any]] = []
+        self.catalog_requests: list[dict[str, Any]] = []
 
     async def read(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(payload)
         if self.error:
             raise self.error
         return spectrum_payload()
+
+    async def catalog(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.catalog_requests.append(payload)
+        if self.error:
+            raise self.error
+        return catalog_payload()
 
 
 async def upload_mgf(client: AsyncClient, run_id: str) -> dict[str, Any]:
@@ -101,6 +130,26 @@ async def test_spectrum_endpoint_defaults_to_first_position(
     assert reader.requests[0]["index"] == 0
 
 
+async def test_spectrum_catalog_endpoint_proxies_retention_time_search(
+    client: AsyncClient, hierarchy: dict[str, str]
+) -> None:
+    artifact = await upload_mgf(client, hierarchy["run_id"])
+    reader = FakeSpectrumReader()
+    app.dependency_overrides[get_spectrum_reader] = override_reader(reader)
+    try:
+        response = await client.get(
+            f"/api/v1/artifacts/{artifact['id']}/spectra",
+            params={"ms_level": 2, "rt_seconds": 90, "limit": 12},
+        )
+    finally:
+        app.dependency_overrides.pop(get_spectrum_reader, None)
+    assert response.status_code == 200, response.text
+    assert response.json()["schema"] == "spectarr.spectrum-catalog"
+    assert reader.catalog_requests[0]["relative_path"].endswith(".mgf")
+    assert reader.catalog_requests[0]["rt_seconds"] == 90
+    assert reader.catalog_requests[0]["limit"] == 12
+
+
 async def test_spectrum_endpoint_rejects_multiple_selectors(
     client: AsyncClient, hierarchy: dict[str, str]
 ) -> None:
@@ -145,6 +194,21 @@ async def test_internal_reader_client_validates_transport_schema() -> None:
     )
     result = await reader.read({"relative_path": "library/sample.mgf"})
     assert result["metadata"]["scan_number"] == 7
+
+
+async def test_internal_reader_client_validates_catalog_schema() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/spectra/catalog"
+        return httpx.Response(200, json=catalog_payload())
+
+    reader = SpectrumReaderClient(
+        "http://spectrum-reader:8002",
+        "worker-token",
+        5,
+        httpx.MockTransport(handler),
+    )
+    result = await reader.catalog({"relative_path": "library/sample.mgf"})
+    assert result["items"][0]["native_id"] == "scan=7"
 
 
 async def test_internal_reader_client_preserves_error_detail() -> None:
