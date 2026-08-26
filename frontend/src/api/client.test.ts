@@ -179,6 +179,7 @@ describe('API client', () => {
     await api.createWebhook({ name: 'Search', url: 'https://example.test/hook', eventFilters: ['artifact.ready'] })
     await api.updateWebhook('webhook-1', false)
     await api.deleteWebhook('webhook-1')
+    await api.job('job-1')
     await api.retryJob('job-1')
     await api.extractArtifact('artifact-1', true)
     await api.generateArtifact('run-1', 'mzML')
@@ -206,6 +207,7 @@ describe('API client', () => {
       ['/api/v1/webhooks', 'POST'],
       ['/api/v1/webhooks/webhook-1', 'PATCH'],
       ['/api/v1/webhooks/webhook-1', 'DELETE'],
+      ['/api/v1/jobs/job-1', undefined],
       ['/api/v1/jobs/job-1/retry', 'POST'],
       ['/api/v1/artifacts/artifact-1/extract', 'POST'],
       ['/api/v1/runs/run-1/derivatives', 'POST'],

@@ -539,6 +539,10 @@ class SpectrumCatalogComplete(BaseModel):
     spectrum_count: int = Field(ge=0)
 
 
+class SpectrumCatalogFail(BaseModel):
+    error: str = Field(min_length=1, max_length=10000)
+
+
 class SpectrumQuery(BaseModel):
     ms_levels: list[int] = Field(default_factory=list, max_length=20)
     scan_number_min: int | None = Field(default=None, ge=0)

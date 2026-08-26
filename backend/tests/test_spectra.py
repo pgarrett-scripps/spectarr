@@ -251,6 +251,35 @@ async def test_persistent_catalog_rejects_invalid_completion_count(
     assert status_response.json()["status"] == "building"
 
 
+async def test_failed_catalog_reports_error_and_allows_clean_retry(
+    client: AsyncClient, hierarchy: dict[str, str]
+) -> None:
+    artifact = await upload_mgf(client, hierarchy["run_id"])
+    started = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs",
+        json={"extractor": "test", "extractor_version": "1"},
+    )
+    catalog_id = started.json()["id"]
+    failed = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs/{catalog_id}/fail",
+        json={"error": "Reader could not open this file"},
+    )
+    assert failed.status_code == 200, failed.text
+    assert failed.json()["status"] == "failed"
+    assert failed.json()["error"] == "Reader could not open this file"
+
+    status_response = await client.get(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalog"
+    )
+    assert status_response.json()["status"] == "failed"
+    retried = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs",
+        json={"extractor": "retry", "extractor_version": "2"},
+    )
+    assert retried.status_code == 201, retried.text
+    assert retried.json()["status"] == "building"
+
+
 async def test_spectrum_endpoint_rejects_multiple_selectors(
     client: AsyncClient, hierarchy: dict[str, str]
 ) -> None:

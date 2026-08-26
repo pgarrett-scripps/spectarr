@@ -916,6 +916,12 @@ td:last-child { display: flex; align-items: center; gap: 1px }
 .spectrum-catalog-state strong[data-mode="fallback"] { border-color: #594a2b }
 .spectrum-catalog-state strong[data-mode="fallback"] { color: #d6b46e }
 .spectrum-catalog-state strong[data-mode="fallback"] { background: #2a2417 }
+.spectrum-catalog-state strong[data-mode="checking"] { border-color: #354259 }
+.spectrum-catalog-state strong[data-mode="checking"] { color: #8294ab }
+.spectrum-catalog-state strong[data-mode="checking"] { background: #111e30 }
+.spectrum-catalog-state strong[data-mode="unavailable"] { border-color: #633746 }
+.spectrum-catalog-state strong[data-mode="unavailable"] { color: #d78a9f }
+.spectrum-catalog-state strong[data-mode="unavailable"] { background: #281720 }
 .spectrum-filters { padding: 11px 14px }
 .spectrum-filters { display: grid }
 .spectrum-filters { grid-template-columns: auto repeat(6, minmax(105px, 1fr)) auto }

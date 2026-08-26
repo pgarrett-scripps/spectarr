@@ -837,6 +837,7 @@ export const api = {
     body: JSON.stringify({ name, description: description || null })
   })),
   jobs: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/jobs')).map(normalizeJob),
+  job: async (id: string) => normalizeJob(await request(`/jobs/${encodeURIComponent(id)}`)),
   storage: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/storage')).map(normalizeStorage),
   previewStorageReclaim: async (values: { projectId: string, formats: ConversionFormat[] }): Promise<StorageReclaimPreview> => normalizeStorageReclaim(await request('/storage/reclaim/preview', {
     method: 'POST',

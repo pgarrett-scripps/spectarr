@@ -26,6 +26,13 @@ class FakeProviders:
         )
 
 
+class FailingProviders:
+    def extract(self, path: Path, declared_format: str | None = None, on_spectrum=None, on_provider_start=None) -> ExtractionResult:
+        if on_provider_start:
+            on_provider_start("broken-parser", "1.0")
+        raise ValueError("Reader could not open this file")
+
+
 class FakeApi:
     def __init__(self, relative_path: str) -> None:
         self.relative_path = relative_path
@@ -81,6 +88,21 @@ class WorkerTests(unittest.TestCase):
             worker.process_one()
             self.assertEqual(api.patches[-1][1]["state"], "failed")
             self.assertIn("escapes", api.patches[-1][1]["error"])
+
+    def test_marks_started_catalog_failed_when_provider_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "objects" / "sample"
+            source.parent.mkdir()
+            source.write_text("data")
+            api = FakeApi("objects/sample")
+            worker = MetadataExtractionWorker(api, FailingProviders(), root)
+
+            worker.process_one()
+
+            failed_catalog = next(value for value in api.posts if value[0].endswith("/fail"))
+            self.assertEqual(failed_catalog[1]["error"], "Reader could not open this file")
+            self.assertEqual(api.patches[-1][1]["state"], "failed")
 
     def test_heartbeat_renews_lease(self) -> None:
         api = FakeApi("unused")

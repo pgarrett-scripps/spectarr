@@ -219,6 +219,15 @@ class SpectrumCatalogPublisher:
             {"spectrum_count": self.spectrum_count},
         )
 
+    def fail(self, extraction_error: Exception) -> None:
+        self.entries = []
+        if self.catalog_id is None:
+            return
+        self.api.post(
+            f"/api/v1/artifacts/{self.artifact_id}/spectrum-catalogs/{self.catalog_id}/fail",
+            {"error": str(extraction_error)[:10000]},
+        )
+
     @classmethod
     def _neutral_mass(cls, spectrum: SpectrumObservation) -> float | None:
         if spectrum.precursor_mz is None or not spectrum.precursor_charge:
@@ -268,6 +277,7 @@ class MetadataExtractionWorker:
             if claim_error.status == 409:
                 return True
             raise
+        catalog: SpectrumCatalogPublisher | None = None
         try:
             artifact_id = str(claimed["input_artifact_id"])
             requested_schema = str(claimed.get("parameters", {}).get("schema_version", "1.0"))
@@ -297,6 +307,11 @@ class MetadataExtractionWorker:
                 heartbeat.ensure_lease()
             self.api.patch(f"/api/v1/jobs/{job_id}", {"state": "succeeded", "progress": 1.0})
         except Exception as extraction_error:
+            if catalog is not None:
+                try:
+                    catalog.fail(extraction_error)
+                except ApiError:
+                    pass
             try:
                 self.api.patch(
                     f"/api/v1/jobs/{job_id}",

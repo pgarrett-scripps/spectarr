@@ -105,7 +105,7 @@ OpenMassSpec is enabled by default for direct metadata extraction from supported
 
 See [extractor documentation](services/extractor/README.md).
 
-The run detail dashboard includes a table-led spectrum browser designed for runs with hundreds of thousands of spectra. Indexed filters cover scan, retention time, MS level, precursor m/z, neutral mass, charge, peak count, total intensity, base peak m/z, native ID, polarity, and representation. Sortable results use cursor pagination in pages of 50 rows. Selecting a row fetches only that spectrum's peak arrays through the private Spxtacular reader. Existing artifacts without a persistent catalog retain basic compatibility browsing and can queue a catalog build from the run page. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
+The run detail dashboard includes a table-led spectrum browser designed for runs with hundreds of thousands of spectra. Indexed filters cover scan, retention time, MS level, precursor m/z, neutral mass, charge, peak count, total intensity, base peak m/z, native ID, polarity, and representation. Sortable results use cursor pagination in pages of 50 rows. Selecting a row fetches only that spectrum's peak arrays through the private Spxtacular reader. Existing artifacts without a persistent catalog retain basic compatibility browsing and can queue a catalog build from the run page. The run page follows queued jobs through completion or failure, and recent catalog jobs also appear in Processing. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
 
 ## Automatic instrument uploads
 

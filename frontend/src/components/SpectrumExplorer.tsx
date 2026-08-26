@@ -2,12 +2,14 @@ import { ChevronDown, ChevronLeft, ChevronRight, Filter, LoaderCircle, RotateCcw
 import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { api, ApiError } from '../api/client'
-import type { Artifact, SpectrumCatalogPage, SpectrumQueryRequest, SpectrumSummary, SpxtacularSpectrum } from '../types'
+import type { Artifact, Job, SpectrumCatalogPage, SpectrumQueryRequest, SpectrumSummary, SpxtacularSpectrum } from '../types'
 
 type SpectrumLoader = typeof api.spectrum
 type SpectrumCatalogLoader = typeof api.spectra
 type SpectrumQueryLoader = typeof api.querySpectra
 type CatalogSpectrumLoader = typeof api.catalogSpectrum
+type CatalogBuilder = typeof api.extractArtifact
+type JobLoader = typeof api.job
 type SpectrumSelection = { entryId?: string, index?: number, scanNumber?: number, nativeId?: string }
 type SortField = NonNullable<SpectrumQueryRequest['sort']>
 
@@ -36,7 +38,7 @@ interface FilterDraft {
 const supportedFormats = new Set(['RAW', 'mzML', 'MGF', 'MS2', 'MSP'])
 const catalogPageSize = 50
 
-export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, chromatogram = [], loadSpectrum = api.spectrum, loadCatalog, loadQuery, loadCatalogSpectrum = api.catalogSpectrum }: { artifacts: Artifact[], preferredMsLevel?: 1 | 2, spectrumCounts?: Record<string, number>, chromatogram?: Array<{ time: number, intensity: number }>, loadSpectrum?: SpectrumLoader, loadCatalog?: SpectrumCatalogLoader, loadQuery?: SpectrumQueryLoader, loadCatalogSpectrum?: CatalogSpectrumLoader }) {
+export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, chromatogram = [], loadSpectrum = api.spectrum, loadCatalog, loadQuery, loadCatalogSpectrum = api.catalogSpectrum, buildCatalog = api.extractArtifact, loadJob = api.job }: { artifacts: Artifact[], preferredMsLevel?: 1 | 2, spectrumCounts?: Record<string, number>, chromatogram?: Array<{ time: number, intensity: number }>, loadSpectrum?: SpectrumLoader, loadCatalog?: SpectrumCatalogLoader, loadQuery?: SpectrumQueryLoader, loadCatalogSpectrum?: CatalogSpectrumLoader, buildCatalog?: CatalogBuilder, loadJob?: JobLoader }) {
   const candidates = useMemo(
     () => artifacts.filter(artifact => artifact.status === 'verified' && supportedFormats.has(artifact.format)),
     [artifacts]
@@ -55,10 +57,12 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
   const [direction, setDirection] = useState<'asc' | 'desc'>('asc')
   const [cursor, setCursor] = useState<string | undefined>()
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([])
-  const [catalogMode, setCatalogMode] = useState<'persistent' | 'fallback'>('persistent')
-  const [catalogAction, setCatalogAction] = useState<'idle' | 'queuing' | 'queued'>('idle')
+  const [catalogMode, setCatalogMode] = useState<'checking' | 'persistent' | 'fallback' | 'unavailable'>('checking')
+  const [catalogAction, setCatalogAction] = useState<'idle' | 'queuing' | 'queued' | 'running' | 'complete' | 'failed'>('idle')
+  const [catalogJob, setCatalogJob] = useState<Job | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
+  const catalogJobId = catalogJob?.id
   const msLevel = summary?.ms_level === 1 ? 1 : summary?.ms_level === 2 ? 2 : defaultMsLevel(selectedArtifact, preferredMsLevel)
   const query = useMemo(() => buildSpectrumQuery(filters, sort, direction, cursor), [cursor, direction, filters, sort])
 
@@ -119,6 +123,7 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
             }
           }
           setCatalog(null)
+          setCatalogMode('unavailable')
           setError(reason instanceof Error ? reason.message : 'Could not query spectra')
         })
         .finally(() => {
@@ -129,7 +134,41 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
       active = false
       window.clearTimeout(timer)
     }
-  }, [loadCatalog, loadQuery, query, selectedArtifact])
+  }, [loadCatalog, loadQuery, query, refresh, selectedArtifact])
+
+  useEffect(() => {
+    if (!catalogJobId || !['queued', 'running'].includes(catalogAction)) return
+    let active = true
+    let timer: number | undefined
+    const poll = async () => {
+      try {
+        const job = await loadJob(catalogJobId)
+        if (!active) return
+        setCatalogJob(job)
+        if (job.status === 'complete') {
+          setCatalogAction('complete')
+          setRefresh(value => value + 1)
+          return
+        }
+        if (job.status === 'failed') {
+          setCatalogAction('failed')
+          setError(job.detail || 'Catalog extraction failed')
+          return
+        }
+        setCatalogAction(job.status)
+        timer = window.setTimeout(() => void poll(), 1000)
+      } catch (reason) {
+        if (!active) return
+        setCatalogAction('failed')
+        setError(reason instanceof Error ? reason.message : 'Could not check catalog extraction status')
+      }
+    }
+    void poll()
+    return () => {
+      active = false
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [catalogAction, catalogJobId, loadJob])
 
   if (!selectedArtifact) {
     return <div className="settings-placeholder">No RAW, mzML, MGF, MS2, or MSP artifact is available for spectrum viewing.</div>
@@ -142,8 +181,12 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
     setSelection({ index: 0 })
     setSummary(null)
     setCatalog(null)
+    setCatalogMode('checking')
     setCursor(undefined)
     setCursorHistory([])
+    setCatalogAction('idle')
+    setCatalogJob(null)
+    setError(null)
   }
 
   const changeFilters = (values: Partial<FilterDraft>) => {
@@ -190,11 +233,15 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
   const activeFilterCount = countFilters(filters, selectedArtifact, preferredMsLevel)
   const rebuildCatalog = async () => {
     setCatalogAction('queuing')
+    setError(null)
     try {
-      await api.extractArtifact(selectedArtifact.id, true)
-      setCatalogAction('queued')
+      const job = await buildCatalog(selectedArtifact.id, true)
+      setCatalogJob(job)
+      setCatalogAction(job.status === 'running' ? 'running' : job.status === 'complete' ? 'complete' : job.status === 'failed' ? 'failed' : 'queued')
+      if (job.status === 'complete') setRefresh(value => value + 1)
+      if (job.status === 'failed') setError(job.detail || 'Catalog extraction failed')
     } catch (reason) {
-      setCatalogAction('idle')
+      setCatalogAction('failed')
       setError(reason instanceof Error ? reason.message : 'Could not queue catalog extraction')
     }
   }
@@ -202,7 +249,7 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
   return <div className="spectrum-explorer">
     <div className="spectrum-toolbar">
       <label><span>Artifact</span><select aria-label="Spectrum artifact" value={selectedArtifact.id} onChange={event => selectArtifact(event.target.value)}>{candidates.map(artifact => <option value={artifact.id} key={artifact.id}>{artifact.name} ({artifact.format})</option>)}</select></label>
-      <div className="spectrum-catalog-state"><span>Access</span><strong data-mode={catalogMode}>{catalogMode === 'persistent' ? 'Indexed catalog' : 'Compatibility mode'}</strong></div>
+      <div className="spectrum-catalog-state"><span>Access</span><strong data-mode={catalogMode}>{catalogModeLabel(catalogMode)}</strong></div>
       <button className="spectrum-browse" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(value => !value)}><Filter size={14} />Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}<ChevronDown size={13} /></button>
       <button className="spectrum-reload" type="button" aria-label="Reload spectrum" disabled={loading} onClick={() => {
         setRefresh(value => value + 1)
@@ -211,7 +258,7 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
     </div>
     {error && <div className="spectrum-error" role="alert">{error}</div>}
     <SpectrumFilters filters={filters} advancedOpen={advancedOpen} ms1Unavailable={selectedArtifact.format === 'MGF' || selectedArtifact.format === 'MS2' || selectedArtifact.format === 'MSP' || spectrumCounts?.['1'] === 0} ms2Unavailable={spectrumCounts?.['2'] === 0} onChange={changeFilters} onClear={() => changeFilters(initialFilters(selectedArtifact, preferredMsLevel))} />
-    {catalogMode === 'fallback' && <div className="spectrum-catalog-notice"><span>{catalogAction === 'queued' ? 'Catalog extraction is queued. Refresh after the extraction job completes.' : 'This artifact has no persistent catalog yet. Basic browsing is available, but advanced filters require re-extraction.'}</span><button type="button" disabled={catalogAction !== 'idle'} onClick={() => void rebuildCatalog()}>{catalogAction === 'queuing' ? 'Queuing' : catalogAction === 'queued' ? 'Queued' : 'Build catalog'}</button></div>}
+    {catalogMode === 'fallback' && <div className="spectrum-catalog-notice"><span>{catalogActionMessage(catalogAction, catalogJob)}</span><button type="button" disabled={['queuing', 'queued', 'running', 'complete'].includes(catalogAction)} onClick={() => void rebuildCatalog()}>{catalogActionButton(catalogAction)}</button></div>}
     <SpectrumTable page={catalog} loading={catalogLoading} selected={summary} sort={sort} direction={direction} onSort={updateSort} onSelect={chooseSummary} onPreviousPage={previousPage} onNextPage={nextPage} canPrevious={cursorHistory.length > 0} />
     <div className="spectrum-selection-control">
       <button type="button" aria-label="Previous spectrum" disabled={selectedRowIndex <= 0 || loading} onClick={() => stepSpectrum(-1)}><ChevronLeft size={15} /></button>
@@ -395,8 +442,38 @@ function spectrumSelectionSubtitle(spectrum: SpxtacularSpectrum | null): string 
   return `Precursor ${precursor.mz.toFixed(4)} m/z${precursor.charge ? ` · ${formatCharge(precursor.charge, spectrum?.metadata.polarity)}` : ''}`
 }
 
+function catalogActionMessage(action: 'idle' | 'queuing' | 'queued' | 'running' | 'complete' | 'failed', job: Job | null): string {
+  if (action === 'queuing') return 'Submitting the catalog extraction job.'
+  if (action === 'queued') return 'Catalog extraction is queued and waiting for a worker.'
+  if (action === 'running') return `Catalog extraction is running${job?.progress ? ` (${job.progress}%)` : ''}.`
+  if (action === 'complete') return 'Catalog extraction completed. Loading the indexed catalog.'
+  if (action === 'failed') return `Catalog extraction failed${job?.detail ? `: ${job.detail}` : ''}. Choose another artifact or retry.`
+  return 'This artifact has no persistent catalog yet. Basic browsing is available, but advanced filters require extraction.'
+}
+
+function catalogModeLabel(mode: 'checking' | 'persistent' | 'fallback' | 'unavailable'): string {
+  if (mode === 'persistent') return 'Indexed catalog'
+  if (mode === 'fallback') return 'Compatibility mode'
+  if (mode === 'unavailable') return 'Catalog unavailable'
+  return 'Checking catalog'
+}
+
+function catalogActionButton(action: 'idle' | 'queuing' | 'queued' | 'running' | 'complete' | 'failed'): string {
+  if (action === 'queuing') return 'Queuing'
+  if (action === 'queued') return 'Queued'
+  if (action === 'running') return 'Building'
+  if (action === 'complete') return 'Loading'
+  if (action === 'failed') return 'Retry catalog'
+  return 'Build catalog'
+}
+
 function preferredArtifact(artifacts: Artifact[]): Artifact | undefined {
-  return artifacts.find(artifact => artifact.role === 'source') ?? artifacts.find(artifact => artifact.format === 'mzML') ?? artifacts[0]
+  const source = artifacts.find(artifact => artifact.role === 'source')
+  if (source && source.format !== 'RAW') return source
+  return artifacts.find(artifact => artifact.format === 'mzML')
+    ?? artifacts.find(artifact => ['MGF', 'MS2', 'MSP'].includes(artifact.format))
+    ?? source
+    ?? artifacts[0]
 }
 
 function defaultMsLevel(artifact?: Artifact, preferredMsLevel?: 1 | 2): 1 | 2 {

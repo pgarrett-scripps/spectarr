@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SpectrumExplorer, SpectrumPlot } from './SpectrumExplorer'
-import type { Artifact, SpectrumCatalogPage, SpxtacularSpectrum } from '../types'
+import type { Artifact, Job, SpectrumCatalogPage, SpxtacularSpectrum } from '../types'
 
 
 const artifact: Artifact = {
@@ -56,6 +56,16 @@ const catalog: SpectrumCatalogPage = {
     { id: 'entry-42', index: 0, native_id: 'scan=42', scan_number: 42, ms_level: 2, rt: 90, precursor_mz: 500.25, precursor_charge: 2, peak_count: 3, total_ion_current: 85 },
     { id: 'entry-43', index: 1, native_id: 'scan=43', scan_number: 43, ms_level: 2, rt: 96, precursor_mz: 622.31, precursor_charge: 2, peak_count: 4, total_ion_current: 120 }
   ]
+}
+
+const queuedCatalogJob: Job = {
+  id: 'job-catalog',
+  kind: 'extract_metadata',
+  runName: 'sample',
+  status: 'queued',
+  progress: 0,
+  detail: 'extract_metadata',
+  createdAt: '2026-08-26T00:00:00Z'
 }
 
 afterEach(cleanup)
@@ -128,6 +138,43 @@ describe('SpectrumExplorer', () => {
     render(<SpectrumExplorer artifacts={[rawArtifact]} preferredMsLevel={2} loadSpectrum={loader} loadQuery={vi.fn().mockResolvedValue(catalog)} />)
 
     await waitFor(() => expect(loader).toHaveBeenCalledWith('raw-artifact', { msLevel: 2, index: 0 }))
+  })
+
+  it('prefers an mzML derivative over a RAW source for reliable catalog access', async () => {
+    const loader = vi.fn().mockResolvedValue(spectrum)
+    const mzmlArtifact = { ...artifact, id: 'mzml-artifact', name: 'sample.mzML', format: 'mzML' as const, role: 'derived' as const }
+    render(<SpectrumExplorer artifacts={[rawArtifact, mzmlArtifact]} preferredMsLevel={2} loadSpectrum={loader} loadQuery={vi.fn().mockResolvedValue(catalog)} />)
+
+    expect(screen.getByRole('combobox', { name: 'Spectrum artifact' })).toHaveValue('mzml-artifact')
+    await waitFor(() => expect(loader).toHaveBeenCalledWith('mzml-artifact', { msLevel: 2, index: 0 }))
+  })
+
+  it('polls a catalog build and reports the real extraction failure', async () => {
+    const loader = vi.fn().mockResolvedValue(spectrum)
+    const fallbackCatalog = { ...catalog, schema_version: 1 as const, strategy: 'fallback' as const }
+    const buildCatalog = vi.fn().mockResolvedValue(queuedCatalogJob)
+    const loadJob = vi.fn().mockResolvedValue({ ...queuedCatalogJob, status: 'failed', detail: 'Reader could not open this RAW file' })
+    render(<SpectrumExplorer artifacts={[rawArtifact]} preferredMsLevel={2} loadSpectrum={loader} loadQuery={vi.fn().mockResolvedValue(fallbackCatalog)} buildCatalog={buildCatalog} loadJob={loadJob} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Build catalog' }))
+
+    await waitFor(() => expect(loadJob).toHaveBeenCalledWith('job-catalog'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Reader could not open this RAW file')
+    expect(screen.getByRole('button', { name: 'Retry catalog' })).toBeEnabled()
+  })
+
+  it('loads the indexed catalog when a catalog build completes', async () => {
+    const loader = vi.fn().mockResolvedValue(spectrum)
+    const fallbackCatalog = { ...catalog, schema_version: 1 as const, strategy: 'fallback' as const }
+    const queryLoader = vi.fn().mockResolvedValueOnce(fallbackCatalog).mockResolvedValue(catalog)
+    const buildCatalog = vi.fn().mockResolvedValue(queuedCatalogJob)
+    const loadJob = vi.fn().mockResolvedValue({ ...queuedCatalogJob, status: 'complete', progress: 100 })
+    render(<SpectrumExplorer artifacts={[artifact]} loadSpectrum={loader} loadQuery={queryLoader} buildCatalog={buildCatalog} loadJob={loadJob} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Build catalog' }))
+
+    expect(await screen.findByText('Indexed catalog')).toBeInTheDocument()
+    expect(queryLoader).toHaveBeenCalledTimes(2)
   })
 
   it('disables unavailable levels and stops at a known spectrum boundary', async () => {

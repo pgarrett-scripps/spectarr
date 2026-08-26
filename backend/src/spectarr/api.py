@@ -80,6 +80,7 @@ from .schemas import (
     SpectrumCatalogBatch,
     SpectrumCatalogComplete,
     SpectrumCatalogCreate,
+    SpectrumCatalogFail,
     SpectrumQuery,
     SdrfDocumentWrite,
     SdrfValidationRequest,
@@ -980,6 +981,7 @@ def _spectrum_catalog_view(catalog: SpectrumCatalog) -> dict:
         "extractor_version": catalog.extractor_version,
         "source_sha256": catalog.source_sha256,
         "spectrum_count": catalog.spectrum_count,
+        "error": catalog.error,
         "created_at": catalog.created_at.isoformat(),
         "updated_at": catalog.updated_at.isoformat(),
     }
@@ -1059,19 +1061,19 @@ async def begin_spectrum_catalog(
     _worker_auth: WorkerAuthDep,
 ) -> dict:
     artifact = fetch_or_404(session, Artifact, artifact_id)
-    building_ids = select(SpectrumCatalog.id).where(
+    stale_ids = select(SpectrumCatalog.id).where(
         SpectrumCatalog.artifact_id == artifact_id,
-        SpectrumCatalog.status == "building",
+        SpectrumCatalog.status.in_(["building", "failed"]),
     )
     session.execute(
         delete(SpectrumCatalogEntry).where(
-            SpectrumCatalogEntry.catalog_id.in_(building_ids)
+            SpectrumCatalogEntry.catalog_id.in_(stale_ids)
         )
     )
     session.execute(
         delete(SpectrumCatalog).where(
             SpectrumCatalog.artifact_id == artifact_id,
-            SpectrumCatalog.status == "building",
+            SpectrumCatalog.status.in_(["building", "failed"]),
         )
     )
     catalog = SpectrumCatalog(
@@ -1169,23 +1171,50 @@ async def complete_spectrum_catalog(
     return _spectrum_catalog_view(catalog)
 
 
+@router.post(
+    "/artifacts/{artifact_id}/spectrum-catalogs/{catalog_id}/fail",
+    tags=["spectra"],
+)
+async def fail_spectrum_catalog(
+    artifact_id: str,
+    catalog_id: str,
+    payload: SpectrumCatalogFail,
+    session: SessionDep,
+    _worker_auth: WorkerAuthDep,
+) -> dict:
+    catalog = fetch_or_404(session, SpectrumCatalog, catalog_id)
+    if catalog.artifact_id != artifact_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "SpectrumCatalog not found")
+    if catalog.status != "building":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Spectrum catalog is not building")
+    session.execute(
+        delete(SpectrumCatalogEntry).where(SpectrumCatalogEntry.catalog_id == catalog.id)
+    )
+    catalog.status = "failed"
+    catalog.error = payload.error
+    catalog.spectrum_count = 0
+    session.commit()
+    session.refresh(catalog)
+    return _spectrum_catalog_view(catalog)
+
+
 @router.get("/artifacts/{artifact_id}/spectrum-catalog", tags=["spectra"])
 async def spectrum_catalog_status(artifact_id: str, session: SessionDep) -> dict:
     fetch_or_404(session, Artifact, artifact_id)
     catalog = _active_spectrum_catalog(session, artifact_id)
     if catalog:
         return _spectrum_catalog_view(catalog)
-    building = session.scalar(
+    latest = session.scalar(
         select(SpectrumCatalog)
         .where(
             SpectrumCatalog.artifact_id == artifact_id,
-            SpectrumCatalog.status == "building",
+            SpectrumCatalog.status.in_(["building", "failed"]),
         )
         .order_by(SpectrumCatalog.created_at.desc())
     )
     return (
-        _spectrum_catalog_view(building)
-        if building
+        _spectrum_catalog_view(latest)
+        if latest
         else {"artifact_id": artifact_id, "status": "unavailable", "spectrum_count": 0}
     )
 
