@@ -1,5 +1,5 @@
 export type RunStatus = 'ready' | 'processing' | 'warning' | 'failed'
-export type ArtifactFormat = 'RAW' | 'mzML' | 'mzXML' | 'MGF' | 'MS2' | 'Parquet'
+export type ArtifactFormat = 'RAW' | 'mzML' | 'mzXML' | 'MGF' | 'MS2' | 'MSP' | 'Parquet'
 export type ConversionFormat = 'mzML' | 'mzXML' | 'MGF' | 'MS2'
 
 export type UserRole = 'admin' | 'operator' | 'viewer' | 'service'
@@ -47,6 +47,54 @@ export interface ChromatogramPoint {
   intensity: number
 }
 
+export interface SpxtacularPrecursor {
+  mz: number
+  intensity: number
+  charge: number | null
+  im: number | null
+  iso_score: number | null
+  is_monoisotopic: boolean | null
+}
+
+export interface SpxtacularSpectrumMetadata {
+  spectrum_type: 'profile' | 'centroid' | 'deconvoluted' | string | null
+  denoised: string | null
+  normalized: string | null
+  deconvolution: Record<string, unknown> | null
+  scan_number?: number | null
+  ms_level?: number | null
+  native_id?: string | null
+  im_type?: string | null
+  rt?: number | null
+  injection_time?: number | null
+  total_ion_current?: number | null
+  mz_range?: [number, number] | null
+  im_range?: [number, number] | null
+  polarity?: string | null
+  resolution?: number | null
+  analyzer?: string | null
+  ramp_time?: number | null
+  collision_energy?: number | null
+  activation_type?: string | null
+  precursors?: SpxtacularPrecursor[] | null
+  isolation_mz_range?: [number, number] | null
+  isolation_im_range?: [number, number] | null
+}
+
+export interface SpxtacularSpectrum {
+  schema: 'spxtacular.spectrum'
+  schema_version: 1
+  kind: 'spectrum' | 'msn_spectrum'
+  arrays: {
+    mz: number[]
+    intensity: number[]
+    charge: number[] | null
+    im: number[] | null
+    iso_score: number[] | null
+  }
+  metadata: SpxtacularSpectrumMetadata
+}
+
 export interface ExtractionSummary {
   id: string
   status: 'queued' | 'running' | 'succeeded' | 'failed'
@@ -80,6 +128,7 @@ export interface ExtractionSummary {
 export interface InstrumentAgent {
   id: string
   name: string
+  enabled: boolean
   status: 'online' | 'offline' | 'degraded' | 'disabled'
   platform: string
   version: string

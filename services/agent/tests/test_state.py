@@ -31,7 +31,7 @@ class StateTests(unittest.TestCase):
         self.assertFalse(self.state.observe(path, "two", 114, 10))
         self.assertTrue(self.state.observe(path, "two", 115, 10))
 
-    def test_queue_deduplicates_checksum_and_persists_restart(self) -> None:
+    def test_queue_deduplicates_occurrence_and_persists_restart(self) -> None:
         acquisition = self.acquisition()
         self.state.observe(acquisition.path, acquisition.signature, 0, 0)
         self.assertTrue(self.state.enqueue(acquisition, run_id="run-1", now=1))
@@ -43,6 +43,70 @@ class StateTests(unittest.TestCase):
         recovered = self.state.claim_next(now=time.time() + 1)
         self.assertIsNotNone(recovered)
         self.assertEqual(recovered.id, item.id)
+
+    def test_identical_content_at_distinct_paths_creates_distinct_occurrences(self) -> None:
+        first = self.acquisition()
+        second_path = self.root / "repeat.mzML"
+        second_path.write_bytes(b"data")
+        second = HashedAcquisition(
+            second_path,
+            first.kind,
+            first.format,
+            first.checksum,
+            first.byte_size,
+            first.signature,
+        )
+        self.assertTrue(self.state.enqueue(first, run_id="run-1", now=1))
+        self.assertTrue(self.state.enqueue(second, run_id="run-2", now=2))
+        rows = self.state.connection.execute(
+            "SELECT source_path, checksum FROM upload_queue ORDER BY created_at"
+        ).fetchall()
+        self.assertEqual([row["source_path"] for row in rows], [str(first.path), str(second.path)])
+        self.assertEqual({row["checksum"] for row in rows}, {first.checksum})
+
+    def test_migrates_checksum_unique_queue_without_losing_items(self) -> None:
+        self.state.close()
+        database = self.root / "legacy.db"
+        connection = __import__("sqlite3").connect(database)
+        connection.execute(
+            """
+            CREATE TABLE upload_queue (
+                id TEXT PRIMARY KEY, source_path TEXT NOT NULL, source_kind TEXT NOT NULL,
+                source_name TEXT NOT NULL, format TEXT NOT NULL, checksum TEXT NOT NULL UNIQUE,
+                byte_size INTEGER NOT NULL, signature TEXT NOT NULL, manifest_json TEXT,
+                run_id TEXT, run_json TEXT, status TEXT NOT NULL, upload_id TEXT, artifact_id TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at REAL NOT NULL DEFAULT 0,
+                last_error TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO upload_queue(
+                id, source_path, source_kind, source_name, format, checksum, byte_size,
+                signature, run_id, status, created_at, updated_at
+            ) VALUES ('one', 'first.raw', 'file', 'first.raw', 'RAW', ?, 4, 'sig', 'run-1',
+                      'complete', 1, 1)
+            """,
+            ("a" * 64,),
+        )
+        connection.commit()
+        connection.close()
+        self.state = AgentState(database)
+        self.assertEqual(self.state.get("one").checksum, "a" * 64)
+        indexes = self.state.connection.execute("PRAGMA index_list(upload_queue)").fetchall()
+        unique_columns = [
+            [
+                column["name"]
+                for column in self.state.connection.execute(
+                    f"PRAGMA index_info('{index['name']}')"
+                ).fetchall()
+            ]
+            for index in indexes
+            if index["unique"]
+        ]
+        self.assertIn(["source_path", "signature"], unique_columns)
+        self.assertNotIn(["checksum"], unique_columns)
 
     def test_retry_backoff_and_terminal_completion(self) -> None:
         acquisition = self.acquisition()

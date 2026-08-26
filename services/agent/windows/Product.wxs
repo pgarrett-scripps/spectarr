@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="Spectarr Acquisition Agent"
+           Language="1033"
+           Version="$(var.SpectarrVersion)"
+           Manufacturer="Spectarr"
+           UpgradeCode="42F7BEE1-5C98-45B2-81D0-8AF905E20502">
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Platform="x64"
+             Description="Spectarr Acquisition Agent for Windows" />
+    <MajorUpgrade DowngradeErrorMessage="A newer Spectarr Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_InstallDir" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Spectarr Agent" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Spectarr Agent" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AgentExecutableComponent" Guid="*" Win64="yes">
+        <File Id="AgentExecutable" Source="$(var.AgentExecutable)" KeyPath="yes" />
+        <ServiceInstall Id="AgentServiceInstaller"
+                        Name="SpectarrAgent"
+                        DisplayName="Spectarr Acquisition Agent"
+                        Description="Watches completed instrument acquisitions and uploads them to Spectarr"
+                        Type="ownProcess"
+                        Start="demand"
+                        ErrorControl="normal"
+                        Account="NT AUTHORITY\LocalService"
+                        Arguments='--windows-service --config "[CommonAppDataFolder]Spectarr Agent\agent.toml"' />
+        <ServiceControl Id="AgentServiceControl"
+                        Name="SpectarrAgent"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+      </Component>
+      <Component Id="ManagementScriptsComponent" Guid="*" Win64="yes">
+        <File Id="ConfigureScript" Source="Configure-Agent.ps1" KeyPath="yes" />
+        <File Id="InstallServiceScript" Source="Install-Service.ps1" />
+        <File Id="UpgradeScript" Source="Upgrade-Agent.ps1" />
+        <File Id="UninstallServiceScript" Source="Uninstall-Service.ps1" />
+        <File Id="ExampleConfiguration" Source="..\agent.example.toml" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="ShortcutsComponent" Guid="*" Win64="yes">
+        <Shortcut Id="ConfigureShortcut"
+                  Name="Configure Spectarr Agent"
+                  Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                  Arguments='-NoProfile -ExecutionPolicy Bypass -File "[INSTALLFOLDER]Configure-Agent.ps1"'
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\Spectarr\AcquisitionAgent"
+                       Name="Installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Complete" Title="Spectarr Acquisition Agent" Level="1">
+      <ComponentRef Id="AgentExecutableComponent" />
+      <ComponentRef Id="ManagementScriptsComponent" />
+      <ComponentRef Id="ShortcutsComponent" />
+    </Feature>
+  </Product>
+</Wix>

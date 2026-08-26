@@ -49,3 +49,23 @@ For a smaller container without the vendor reader wheels, build with `SPECTARR_I
 When available, OpenMassSpec can also expose vendor RAW metadata through its unified streaming iterator. A missing or failed optional provider does not prevent mzML, mzXML, MGF, or MS2 extraction.
 
 See the [OpenMassSpec Python quickstart](https://sigilweaver.app/openmassspec/docs/quickstart-python/) for supported readers and installation extras.
+
+## Interactive spectrum reader
+
+The same image provides `spectarr-spectrum-server`, a private HTTP process used by the browser GUI. It reads individual spectra with Spxtacular and returns the versioned `spxtacular.spectrum` JSON transport. Supported inputs include Thermo RAW, Bruker `.d`, mzML, MGF, MS2, and MSP according to the installed Spxtacular reader extras.
+
+mzML access requests Spxtacular's automatic disk-backed strategy. Self-indexed gzip is used
+directly, current extraction or rapidgzip caches are reused, and ordinary gzip falls back to the
+mzMLPy extraction cache.
+
+The development Compose build installs mzMLPy and Spxtacular from their published main
+branches. Override `SPECTARR_MZMLPY_BUILD_CONTEXT` or
+`SPECTARR_SPXTACULAR_BUILD_CONTEXT` to test a different Git ref or local BuildKit context.
+
+```text
+spectarr-spectrum-server --host 0.0.0.0 --port 8002
+```
+
+The service requires `SPECTARR_WORKER_TOKEN` on every spectrum request and resolves only storage-relative paths beneath `SPECTARR_LOCAL_STORAGE_ROOT`. Compose mounts that directory read-only. The image includes the .NET 8 runtime and configures Python.NET for Thermo RawFileReader support. Unsupported vendor RAW formats should be converted to mzML for visualization.
+
+Spectrum selection supports a zero-based position within MS1 or MS2, a scan number, or a native ID. Native IDs use keyed random access when the reader provides it. Position lookup streams until it reaches the requested spectrum, so a future level-position index can improve deep numeric access without changing the browser transport.

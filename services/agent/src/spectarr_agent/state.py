@@ -78,6 +78,56 @@ class AgentState:
                 blocked_reason TEXT
             )
             """,
+        )
+        for statement in statements:
+            self.connection.execute(statement)
+        self._migrate_upload_queue()
+
+    def _migrate_upload_queue(self) -> None:
+        table = self.connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'upload_queue'"
+        ).fetchone()
+        if table is None:
+            self._create_upload_queue()
+            return
+        unique_indexes = self.connection.execute("PRAGMA index_list(upload_queue)").fetchall()
+        checksum_is_unique = any(
+            bool(index["unique"])
+            and [
+                column["name"]
+                for column in self.connection.execute(
+                    f"PRAGMA index_info('{index['name']}')"
+                ).fetchall()
+            ]
+            == ["checksum"]
+            for index in unique_indexes
+        )
+        if not checksum_is_unique:
+            self._create_upload_queue_index()
+            return
+
+        with self.transaction():
+            self.connection.execute("ALTER TABLE upload_queue RENAME TO upload_queue_checksum_unique")
+            self._create_upload_queue()
+            self.connection.execute(
+                """
+                INSERT INTO upload_queue(
+                    id, source_path, source_kind, source_name, format, checksum, byte_size,
+                    signature, manifest_json, run_id, run_json, status, upload_id, artifact_id,
+                    attempts, next_attempt_at, last_error, created_at, updated_at
+                )
+                SELECT
+                    id, source_path, source_kind, source_name, format, checksum, byte_size,
+                    signature, manifest_json, run_id, run_json, status, upload_id, artifact_id,
+                    attempts, next_attempt_at, last_error, created_at, updated_at
+                FROM upload_queue_checksum_unique
+                """
+            )
+            self.connection.execute("DROP TABLE upload_queue_checksum_unique")
+        self._create_upload_queue_index()
+
+    def _create_upload_queue(self) -> None:
+        self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS upload_queue (
                 id TEXT PRIMARY KEY,
@@ -85,7 +135,7 @@ class AgentState:
                 source_kind TEXT NOT NULL CHECK (source_kind IN ('file', 'bundle')),
                 source_name TEXT NOT NULL,
                 format TEXT NOT NULL,
-                checksum TEXT NOT NULL UNIQUE,
+                checksum TEXT NOT NULL,
                 byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
                 signature TEXT NOT NULL,
                 manifest_json TEXT,
@@ -100,16 +150,20 @@ class AgentState:
                 next_attempt_at REAL NOT NULL DEFAULT 0,
                 last_error TEXT,
                 created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
+                updated_at REAL NOT NULL,
+                UNIQUE(source_path, signature)
             )
-            """,
+            """
+        )
+        self._create_upload_queue_index()
+
+    def _create_upload_queue_index(self) -> None:
+        self.connection.execute(
             """
             CREATE INDEX IF NOT EXISTS ix_upload_queue_ready
                 ON upload_queue(status, next_attempt_at, created_at)
-            """,
+            """
         )
-        for statement in statements:
-            self.connection.execute(statement)
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
@@ -242,7 +296,8 @@ class AgentState:
             inserted = cursor.rowcount == 1
             if not inserted:
                 existing = self.connection.execute(
-                    "SELECT id, status FROM upload_queue WHERE checksum = ?", (acquisition.checksum,)
+                    "SELECT id, status FROM upload_queue WHERE source_path = ? AND signature = ?",
+                    (str(acquisition.path), acquisition.signature),
                 ).fetchone()
                 if existing and existing["status"] == "failed":
                     self.connection.execute(

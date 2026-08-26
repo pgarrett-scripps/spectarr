@@ -31,6 +31,7 @@ FORMAT_DIRECTORIES = {
     "mzxml": "mzxml",
     "mgf": "mgf",
     "ms2": "ms2",
+    "msp": "msp",
     "parquet": "parquet",
 }
 SUFFIX_DIRECTORIES = {
@@ -38,7 +39,11 @@ SUFFIX_DIRECTORIES = {
     ".mzml": "mzml",
     ".mzxml": "mzxml",
     ".mgf": "mgf",
+    ".mgf.gz": "mgf",
     ".ms2": "ms2",
+    ".ms2.gz": "ms2",
+    ".msp": "msp",
+    ".msp.gz": "msp",
     ".raw": "raw",
     ".wiff": "raw",
     ".d": "raw",

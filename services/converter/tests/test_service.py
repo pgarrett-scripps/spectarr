@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import gzip
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from mzmlpy import AccessStrategy, Mzml
+from mzmlpy.embedded_indexed_gzip import is_embedded_indexed_gzip
 
 from spectarr_converter.models import ConversionRequest
 from spectarr_converter.recipes import Recipe, get_recipe
@@ -65,7 +69,13 @@ class ConversionServiceTests(unittest.TestCase):
         result = service.convert(ConversionRequest("job-1", str(self.source), "archival-mzml-v1"))
         self.assertEqual(result.status, "succeeded")
         self.assertEqual(result.outputs[0].format, "mzML")
-        self.assertEqual(result.outputs[0].byte_size, 34)
+        output = Path(result.outputs[0].path)
+        self.assertTrue(output.name.endswith(".mzML.gz"))
+        self.assertTrue(is_embedded_indexed_gzip(output))
+        with gzip.open(output, "rb") as stream:
+            self.assertEqual(stream.read(), b'<?xml version="1.0"?><mzML></mzML>')
+        with Mzml(output, in_memory=False) as reader:
+            self.assertEqual(reader.access_strategy, AccessStrategy.EMBEDDED)
         self.assertEqual(len(result.outputs[0].sha256), 64)
         self.assertEqual(result.converter_version, "1.2.0")
         self.assertEqual(result.command, ["docker", "run", result.image])

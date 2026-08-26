@@ -30,7 +30,7 @@ from .schemas import ProcessingBatchRequest
 BUILTIN_PROFILES = (
     {
         "name": "Standard mzML",
-        "description": "Archival mzML with indexed spectra, zlib compression, 64-bit m/z, and 32-bit intensities.",
+        "description": "Archival self-indexed mzML gzip with zlib arrays, 64-bit m/z, and 32-bit intensities.",
         "output_format": "mzML",
         "parameters": {
             "filters": [],

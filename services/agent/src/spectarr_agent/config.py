@@ -44,6 +44,9 @@ class AgentConfig:
     server_url: str
     watch_paths: tuple[Path, ...]
     state_db: Path
+    log_file: Path | None = None
+    log_max_bytes: int = 10 * 1024 * 1024
+    log_backup_count: int = 5
     api_key: str | None = None
     agent_id: str | None = None
     agent_token: str | None = None
@@ -84,6 +87,10 @@ class AgentConfig:
             raise ValueError("heartbeat_interval_seconds must be positive")
         if self.chunk_size_bytes < 64 * 1024:
             raise ValueError("chunk_size_bytes must be at least 65536")
+        if self.log_max_bytes < 64 * 1024:
+            raise ValueError("log_max_bytes must be at least 65536")
+        if self.log_backup_count < 1:
+            raise ValueError("log_backup_count must be positive")
         if self.request_timeout_seconds <= 0:
             raise ValueError("request_timeout_seconds must be positive")
         if self.retry_base_seconds <= 0 or self.retry_max_seconds < self.retry_base_seconds:
@@ -95,6 +102,7 @@ class AgentConfig:
             server_url=self.server_url.rstrip("/"),
             watch_paths=tuple(path.expanduser().resolve(strict=False) for path in self.watch_paths),
             state_db=self.state_db.expanduser().resolve(strict=False),
+            log_file=self.log_file.expanduser().resolve(strict=False) if self.log_file else None,
             file_suffixes=tuple(value.lower() for value in self.file_suffixes),
             bundle_suffixes=tuple(value.lower() for value in self.bundle_suffixes),
         )
@@ -121,6 +129,9 @@ def load_config(path: Path | None = None, overrides: dict[str, Any] | None = Non
         "sample_id": "SPECTARR_AGENT_SAMPLE_ID",
         "instrument_id": "SPECTARR_AGENT_INSTRUMENT_ID",
         "state_db": "SPECTARR_AGENT_STATE_DB",
+        "log_file": "SPECTARR_AGENT_LOG_FILE",
+        "log_max_bytes": "SPECTARR_AGENT_LOG_MAX_BYTES",
+        "log_backup_count": "SPECTARR_AGENT_LOG_BACKUP_COUNT",
         "poll_interval_seconds": "SPECTARR_AGENT_POLL_SECONDS",
         "stability_seconds": "SPECTARR_AGENT_STABILITY_SECONDS",
         "heartbeat_interval_seconds": "SPECTARR_AGENT_HEARTBEAT_SECONDS",
@@ -148,7 +159,7 @@ def load_config(path: Path | None = None, overrides: dict[str, Any] | None = Non
         "retry_base_seconds",
         "retry_max_seconds",
     }
-    numeric_int = {"chunk_size_bytes", "max_attempts"}
+    numeric_int = {"chunk_size_bytes", "max_attempts", "log_max_bytes", "log_backup_count"}
     for key in numeric_float:
         if key in raw:
             raw[key] = float(raw[key])
@@ -162,6 +173,8 @@ def load_config(path: Path | None = None, overrides: dict[str, Any] | None = Non
         raw["state_db"] = Path(raw["state_db"])
     else:
         raw["state_db"] = Path.home() / ".spectarr-agent" / "queue.sqlite3"
+    if raw.get("log_file"):
+        raw["log_file"] = Path(raw["log_file"])
     for key in ("ignore_patterns", "file_suffixes", "bundle_suffixes"):
         if key in raw:
             raw[key] = tuple(str(value) for value in raw[key])

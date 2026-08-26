@@ -45,6 +45,7 @@ async def test_health_and_openapi(client: AsyncClient) -> None:
         "/api/v1/jobs/{job_id}/retry": {"post"},
         "/api/v1/agents/register": {"post"},
         "/api/v1/agents/{agent_id}": {"patch"},
+        "/api/v1/agents/{agent_id}/rotate-token": {"post"},
         "/api/v1/inbox": {"get"},
         "/api/v1/runs/bulk-assignment": {"post"},
         "/api/v1/runs/{run_id}/assignment": {"patch"},

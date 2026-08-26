@@ -13,14 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import (
     Artifact,
     ArtifactRole,
     ArtifactState,
-    Experiment,
     Project,
     Run,
     RunSample,

@@ -165,6 +165,8 @@ describe('API client', () => {
     await api.deleteToken('token-1')
     await api.registerAgent('Instrument PC')
     await api.updateAgentDestination('agent-1', 'inbox')
+    await api.updateAgentEnabled('agent-1', false)
+    await api.rotateAgentToken('agent-1')
     await api.createAutomationRule({
       name: 'Extract',
       enabled: true,
@@ -197,6 +199,8 @@ describe('API client', () => {
       ['/api/v1/tokens/token-1', 'DELETE'],
       ['/api/v1/agents/register', 'POST'],
       ['/api/v1/agents/agent-1', 'PATCH'],
+      ['/api/v1/agents/agent-1', 'PATCH'],
+      ['/api/v1/agents/agent-1/rotate-token', 'POST'],
       ['/api/v1/automation-rules', 'POST'],
       ['/api/v1/automation-rules/rule-1', 'PATCH'],
       ['/api/v1/webhooks', 'POST'],

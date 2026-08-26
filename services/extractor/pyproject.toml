@@ -7,14 +7,17 @@ name = "spectarr-extractor"
 version = "0.1.0"
 description = "Streaming mass spectrometry metadata extraction worker for Spectarr"
 license = "Apache-2.0"
-requires-python = ">=3.11"
-dependencies = []
+requires-python = ">=3.12"
+dependencies = [
+  "spxtacular[readers]>=0.6.0,<1",
+]
 
 [project.optional-dependencies]
 openmassspec = ["openmassspec"]
 
 [project.scripts]
 spectarr-extractor-worker = "spectarr_extractor.worker:main"
+spectarr-spectrum-server = "spectarr_extractor.spectrum_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/spectarr_extractor"]

@@ -105,6 +105,8 @@ OpenMassSpec is enabled by default for direct metadata extraction from supported
 
 See [extractor documentation](services/extractor/README.md).
 
+The run detail dashboard includes an interactive spectrum explorer. The authenticated API proxies each request to a private Spxtacular reader container with read-only storage access. The browser receives the versioned `spxtacular.spectrum` JSON contract and can switch artifacts, MS levels, and zero-based spectrum positions without knowing the source file format. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
+
 ## Automatic instrument uploads
 
 The standalone acquisition agent runs on Windows or Linux beside an instrument computer or file server. It uses conservative polling, waits for stable completed acquisitions, treats native vendor directories atomically, rejects symlinks, blocks temporary and lock files, and keeps an offline SQLite queue. Uploads are resumable, checksummed, idempotent, and deduplicated.

@@ -249,6 +249,7 @@ td:last-child { display: flex; align-items: center; gap: 1px }
 .detail-stat-grid span { margin-bottom: 6px; color: #62758d; font-size: 8px; text-transform: uppercase; letter-spacing: .05em }
 .detail-stat-grid strong { font-size: 11px }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px }
+.detail-main { min-width: 0 }
 .chart-wrap { padding: 12px 18px 16px }
 .chromatogram { width: 100%; height: 205px; overflow: visible }
 .chart-grid line { stroke: #1b2b40; stroke-width: 1 }
@@ -282,6 +283,45 @@ td:last-child { display: flex; align-items: center; gap: 1px }
 .extraction-warnings { padding: 14px 18px; display: grid; gap: 5px; color: #d8a755; background: #2d2415 }
 .extraction-warnings strong { font-size: 9px }.extraction-warnings span { font-size: 8px }
 
+.spectrum-explorer { min-width: 0 }
+.spectrum-toolbar { min-height: 58px; padding: 10px 14px; display: flex; align-items: flex-end; gap: 10px; border-bottom: 1px solid var(--border-soft); background: #091625 }
+.spectrum-toolbar label > span, .spectrum-toolbar legend { display: block; margin-bottom: 5px; color: #65788f; font-size: 8px; text-transform: uppercase; letter-spacing: .05em }
+.spectrum-toolbar select, .spectrum-toolbar input { height: 31px; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px; outline: 0; color: #b9c5d4; background: #0d1b2d; font-size: 9px }
+.spectrum-toolbar select { width: min(330px, 34vw) }
+.spectrum-toolbar input { width: 76px; text-align: center }
+.spectrum-toolbar fieldset { height: 31px; margin: 0; padding: 0; display: flex; border: 1px solid var(--border); border-radius: 5px }
+.spectrum-toolbar fieldset legend { position: absolute; margin-top: -17px }
+.spectrum-toolbar fieldset button, .spectrum-index-control > button, .spectrum-reload { min-width: 34px; height: 29px; display: grid; place-items: center; border: 0; border-right: 1px solid var(--border); color: #71849a; background: transparent; cursor: pointer; font-size: 9px }
+.spectrum-toolbar fieldset button:last-child, .spectrum-index-control > button:last-child { border-right: 0 }
+.spectrum-toolbar fieldset button.active { color: #d7d0ff; background: #30295e }
+.spectrum-toolbar fieldset button:disabled { opacity: .35; cursor: default }
+.spectrum-index-control { display: flex; align-items: flex-end; border: 1px solid var(--border); border-radius: 5px }
+.spectrum-index-control label span { position: absolute; margin-top: -17px }
+.spectrum-index-control input { border-width: 0 1px; border-radius: 0 }
+.spectrum-index-control button:disabled, .spectrum-reload:disabled { opacity: .4; cursor: default }
+.spectrum-reload { margin-left: auto; border: 1px solid var(--border); border-radius: 5px }
+.spectrum-loading, .spectrum-error { min-height: 230px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #71849a; font-size: 9px }
+.spectrum-error { min-height: auto; padding: 13px 16px; justify-content: flex-start; color: #efa3a8; background: #3a2026 }
+.spin { animation: spin 1.2s linear infinite }
+.spectrum-chart-wrap { position: relative; padding: 12px 14px 0 }
+.spectrum-chart { width: 100%; height: 285px; display: block; overflow: visible; cursor: crosshair }
+.spectrum-grid line { stroke: #1c2d43; stroke-width: 1 }
+.spectrum-axis-line { stroke: #52647b; stroke-width: 1 }
+.spectrum-sticks line { stroke: #8d79f5; stroke-width: 1.25 }
+.spectrum-profile { fill: none; stroke: #47c4d4; stroke-width: 1.35; vector-effect: non-scaling-stroke }
+.spectrum-hover-marker line { stroke: #d8a755; stroke-width: 1; stroke-dasharray: 3 3 }
+.spectrum-hover-marker circle { fill: #f2bb61; stroke: #07111f; stroke-width: 1 }
+.spectrum-axis-label { fill: #65778e; font-size: 9px }
+.spectrum-hover-value { position: absolute; top: 18px; right: 22px; min-width: 175px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; color: #71849a; background: #081421dd; font-size: 8px; pointer-events: none }
+.spectrum-hover-value strong, .spectrum-hover-value span { display: block }
+.spectrum-hover-value strong { color: #d6dfec; font-size: 9px }.spectrum-hover-value span { margin-top: 3px }
+.spectrum-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border-soft) }
+.spectrum-facts > div { min-width: 0; padding: 12px 14px; border-right: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft) }
+.spectrum-facts > div:nth-child(4n) { border-right: 0 }
+.spectrum-facts span, .spectrum-facts strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.spectrum-facts span { color: #61748d; font-size: 7px; text-transform: uppercase; letter-spacing: .05em }
+.spectrum-facts strong { margin-top: 5px; color: #bdc8d7; font-size: 9px; font-weight: 600 }
+
 .compact-metrics { display: flex; gap: 30px; margin: -8px 0 18px; color: #71839a; font-size: 10px }.compact-metrics strong { margin-right: 4px; color: #cdd6e4; font-size: 16px }.danger-text strong { color: #ef737c }
 .activity-list { padding-bottom: 2px }
 .activity-row { min-height: 76px; padding: 13px 17px; display: grid; grid-template-columns: 36px minmax(0, 1fr) 90px 60px 70px; align-items: center; gap: 12px; border-bottom: 1px solid var(--border-soft) }
@@ -292,7 +332,10 @@ td:last-child { display: flex; align-items: center; gap: 1px }
 .agent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px }
 .agent-card { padding: 18px }.agent-card-head { display: flex; justify-content: space-between; align-items: flex-start }.agent-card h2 { margin: 15px 0 4px; font-size: 13px }.agent-card > p { margin: 0; color: #64768e; font-size: 9px }
 .agent-stats { margin: 17px 0 0 }.agent-stats div { padding: 9px 0; border-top: 1px solid var(--border-soft) }.agent-stats dt { color: #5e7189; font-size: 8px }.agent-stats dd { margin: 4px 0 0; overflow-wrap: anywhere; color: #aebaca; font-size: 9px }
-.agent-configure { margin-top: 14px; width: 100%; justify-content: center }
+.agent-actions { margin-top: 14px }
+.agent-actions { display: flex }
+.agent-actions { flex-wrap: wrap }
+.agent-actions { gap: 6px }
 .agent-error { margin-top: 11px; padding: 9px; display: flex; gap: 6px; align-items: flex-start; border-radius: 6px; color: #efa3a8; background: #3a2026; font-size: 8px }
 .agent-flow { min-height: 90px; padding: 20px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 13px; color: #53677f }.agent-flow span { min-height: 38px; padding: 0 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 7px; color: #a9b5c5; background: #0a1726; font-size: 9px }.agent-flow svg { width: 15px; color: #8e7bf5 }
 .token-result { padding: 20px }.token-result > strong { font-size: 11px }.token-result > p { color: #708299; font-size: 9px; line-height: 1.5 }.token-result .endpoint { margin: 14px 0 }.token-result > .button { width: 100% }
@@ -692,6 +735,7 @@ td:last-child { display: flex; align-items: center; gap: 1px }
   .main-column { margin-left: 0 }.topbar { height: 64px; padding: 0 17px }.mobile-menu { display: grid }.main-content { padding: 28px 18px 60px }
   .detail-stat-grid { grid-template-columns: repeat(2, 1fr) }.detail-stat-grid div { border-bottom: 1px solid var(--border-soft) }.detail-side { grid-template-columns: 1fr }
   .storage-card-grid, .agent-grid, .integration-grid, .sdrf-bottom-grid { grid-template-columns: 1fr }.settings-layout { grid-template-columns: 1fr }.settings-nav { flex-direction: row; overflow-x: auto }.settings-nav button { flex: none }
+  .spectrum-toolbar { align-items: flex-end; flex-wrap: wrap }.spectrum-toolbar select { width: min(420px, 68vw) }.spectrum-reload { margin-left: 0 }.spectrum-facts { grid-template-columns: repeat(2, minmax(0, 1fr)) }.spectrum-facts > div:nth-child(2n) { border-right: 0 }
 }
 
 @media (max-width: 560px) {
@@ -705,4 +749,5 @@ td:last-child { display: flex; align-items: center; gap: 1px }
   .activity-row { grid-template-columns: 36px minmax(0, 1fr) auto }.activity-time, .activity-row > .status-badge { display: none }
   .policy-grid { grid-template-columns: 1fr }.scope-list { flex-direction: column }.service-list > div { grid-template-columns: 34px minmax(0, 1fr) auto }.service-list > div > .health, .service-list > div > span:nth-child(3) { display: none }
   .message-banner { align-items: flex-start }.message-banner > div { align-items: flex-start }.message-banner .button { flex: none }
+  .spectrum-toolbar > label:first-child { width: 100% }.spectrum-toolbar select { width: 100% }.spectrum-chart { height: 230px }.spectrum-hover-value { min-width: 145px }.spectrum-facts { grid-template-columns: 1fr 1fr }
 }

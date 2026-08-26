@@ -273,6 +273,63 @@ def test_production_settings_reject_development_secrets_and_sqlite() -> None:
     assert settings.environment == "production"
 
 
+async def test_agent_can_be_disabled_and_its_token_rotated(
+    client: AsyncClient, auth_enabled
+) -> None:
+    _, admin_headers = await bootstrap(client)
+    registered = await client.post(
+        "/api/v1/agents/register",
+        json={"name": "managed-agent"},
+        headers=admin_headers,
+    )
+    assert registered.status_code == 201
+    agent = registered.json()
+    old_headers = {"Authorization": f"Bearer {agent['token']}"}
+    heartbeat_path = f"/api/v1/agents/{agent['id']}/heartbeat"
+    assert (
+        await client.post(heartbeat_path, json={"status": "online"}, headers=old_headers)
+    ).status_code == 200
+
+    disabled = await client.patch(
+        f"/api/v1/agents/{agent['id']}",
+        json={"enabled": False},
+        headers=admin_headers,
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+    assert disabled.json()["status"] == "disabled"
+    assert (
+        await client.post(heartbeat_path, json={"status": "online"}, headers=old_headers)
+    ).status_code == 401
+
+    rotated = await client.post(
+        f"/api/v1/agents/{agent['id']}/rotate-token",
+        headers=admin_headers,
+    )
+    assert rotated.status_code == 200
+    new_token = rotated.json()["token"]
+    assert new_token.startswith("agt_")
+    assert new_token != agent["token"]
+    new_headers = {"Authorization": f"Bearer {new_token}"}
+    assert (
+        await client.post(heartbeat_path, json={"status": "online"}, headers=new_headers)
+    ).status_code == 401
+
+    enabled = await client.patch(
+        f"/api/v1/agents/{agent['id']}",
+        json={"enabled": True},
+        headers=admin_headers,
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] is True
+    assert (
+        await client.post(heartbeat_path, json={"status": "online"}, headers=new_headers)
+    ).status_code == 200
+    assert (
+        await client.post(heartbeat_path, json={"status": "online"}, headers=old_headers)
+    ).status_code == 401
+
+
 async def test_agent_resumable_upload_pipeline_and_extraction(
     client: AsyncClient, auth_enabled
 ) -> None:

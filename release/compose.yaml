@@ -33,11 +33,15 @@ services:
       SPECTARR_BIND_ADDRESS: ${SPECTARR_BIND_ADDRESS:-127.0.0.1}
       SPECTARR_ALLOW_REMOTE_NO_AUTH: ${SPECTARR_ALLOW_REMOTE_NO_AUTH:-false}
       SPECTARR_CORS_ORIGINS: ${SPECTARR_CORS_ORIGINS:-[]}
+      SPECTARR_SPECTRUM_READER_URL: http://spectrum-reader:8002
+      SPECTARR_SPECTRUM_READER_TIMEOUT_SECONDS: ${SPECTARR_SPECTRUM_READER_TIMEOUT_SECONDS:-30}
     volumes:
       - ${SPECTARR_DATA_DIR:-./data}:/data
       - ${SPECTARR_IMPORT_DIR:-./imports}:/imports:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      spectrum-reader:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request\nurllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
@@ -78,6 +82,22 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    restart: unless-stopped
+
+  spectrum-reader:
+    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-extractor:${SPECTARR_VERSION:-latest}
+    entrypoint: ["spectarr-spectrum-server"]
+    environment:
+      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN}
+      SPECTARR_LOCAL_STORAGE_ROOT: /data/storage
+      SPECTARR_SPECTRUM_PORT: 8002
+    volumes:
+      - ${SPECTARR_DATA_DIR:-./data}/storage:/data/storage:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request\nurllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   webhooks:

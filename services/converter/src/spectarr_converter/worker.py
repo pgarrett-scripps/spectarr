@@ -18,7 +18,7 @@ from typing import Any, Protocol
 from urllib import error, parse, request
 
 from . import __version__
-from .models import ConversionRequest
+from .models import ConversionRequest, ConversionResult
 from .service import ConversionService, PINNED_DEFAULT_IMAGE
 
 
@@ -266,6 +266,9 @@ class ApiConversionWorker:
                         "recipe_name": recipe_definition["name"],
                         "recipe_revision": recipe_revision,
                         "recipe_snapshot": recipe_definition,
+                        "container_format": (
+                            "pymzml-indexed-gzip" if output.path.lower().endswith(".mzml.gz") else "plain"
+                        ),
                         "stdout": result.stdout[-32768:],
                         "stderr": result.stderr[-32768:],
                     },

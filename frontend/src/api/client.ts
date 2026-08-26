@@ -1,4 +1,4 @@
-import type { ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
+import type { ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const TOKEN_KEY = 'spectarr_access_token'
@@ -210,8 +210,10 @@ function normalizeFormat(value: unknown): ArtifactFormat {
     MZXML: 'mzXML',
     MGF: 'MGF',
     MS2: 'MS2',
+    MSP: 'MSP',
+    VENDOR_DIRECTORY: 'RAW',
     PARQUET: 'Parquet'
-  } as const)[format.toUpperCase() as 'RAW' | 'MZML' | 'MZXML' | 'MGF' | 'MS2' | 'PARQUET'] ?? format as ArtifactFormat
+  } as const)[format.toUpperCase() as 'RAW' | 'MZML' | 'MZXML' | 'MGF' | 'MS2' | 'MSP' | 'VENDOR_DIRECTORY' | 'PARQUET'] ?? format as ArtifactFormat
 }
 
 function normalizeProject(value: unknown): Project {
@@ -388,7 +390,8 @@ function normalizeAgent(value: unknown): InstrumentAgent {
   return {
     id: textValue(item.id),
     name: textValue(item.name, 'Unnamed agent'),
-    status: textValue(item.status, 'offline') as InstrumentAgent['status'],
+    enabled: typeof item.enabled === 'boolean' ? item.enabled : true,
+    status: (item.enabled === false ? 'disabled' : textValue(item.status, 'offline')) as InstrumentAgent['status'],
     platform: textValue(item.platform, textValue(metadata.platform, 'Unknown')),
     version: textValue(item.version, textValue(metadata.version, 'Unknown')),
     watchPaths: stringList(item.watch_paths ?? metadata.watch_paths ?? capacity.watch_paths),
@@ -636,6 +639,14 @@ export const api = {
     method: 'PATCH',
     body: JSON.stringify({ destination_mode: mode, destination_experiment_id: destinationExperimentId })
   })),
+  updateAgentEnabled: async (id: string, enabled: boolean) => normalizeAgent(await request(`/agents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled })
+  })),
+  rotateAgentToken: async (id: string) => {
+    const response = await request<ApiRecord>(`/agents/${encodeURIComponent(id)}/rotate-token`, { method: 'POST' })
+    return { agent: normalizeAgent(response), token: textValue(response.token) }
+  },
   automationRules: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/automation-rules')).map(normalizeRule),
   createAutomationRule: async (values: Omit<AutomationRule, 'id' | 'createdAt' | 'generateMzml'>) => normalizeRule(await request('/automation-rules', {
     method: 'POST',
@@ -862,7 +873,7 @@ export const api = {
     const lower = sourceName.toLowerCase()
     const sourceClass = lower.endsWith('.mzml') || lower.endsWith('.mzxml')
       ? 'open'
-      : lower.endsWith('.mgf') || lower.endsWith('.ms2') ? 'spectrum_list' : 'vendor'
+      : lower.endsWith('.mgf') || lower.endsWith('.mgf.gz') || lower.endsWith('.ms2') || lower.endsWith('.ms2.gz') || lower.endsWith('.msp') || lower.endsWith('.msp.gz') ? 'spectrum_list' : 'vendor'
     const run = await request<{ id: string }>('/runs', {
       method: 'POST',
       body: JSON.stringify({
@@ -894,6 +905,13 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ extractor: 'spectarr-extractor', schema_version: '1.0', force })
   })),
+  spectrum: async (artifactId: string, selection: { msLevel: 1 | 2, index?: number, scanNumber?: number, nativeId?: string }): Promise<SpxtacularSpectrum> => {
+    const query = new URLSearchParams({ ms_level: String(selection.msLevel) })
+    if (selection.index !== undefined) query.set('index', String(selection.index))
+    if (selection.scanNumber !== undefined) query.set('scan_number', String(selection.scanNumber))
+    if (selection.nativeId !== undefined) query.set('native_id', selection.nativeId)
+    return request(`/artifacts/${encodeURIComponent(artifactId)}/spectrum?${query.toString()}`)
+  },
   generateArtifact: async (runId: string, format: ConversionFormat, inputArtifactId?: string, recipeId?: string) => normalizeJob(await request(`/runs/${encodeURIComponent(runId)}/derivatives`, {
     method: 'POST',
     body: JSON.stringify({ format, input_artifact_id: inputArtifactId, recipe_id: recipeId })

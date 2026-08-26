@@ -13,6 +13,7 @@ Key properties:
 - Structured JSON result on standard output
 - Exact profile snapshots recorded with every output
 - MSCLI packaged named configs copied into shared per-job scratch before Docker execution
+- Final mzML outputs rewritten as pyMZML-compatible self-indexed `.mzML.gz` artifacts through Spxtacular and mzMLPy
 
 Install the sibling package and this package into the worker environment:
 
@@ -29,6 +30,14 @@ spectarr-convert request.json \
 ```
 
 The backend must promote validated outputs from scratch into managed artifact storage. A successful result does not modify or delete the source.
+
+For mzML recipes, ProteoWizard first produces a temporary `.mzML`. The service validates it,
+creates a self-indexed `.mzML.gz`, validates standard gzip decompression, and removes only the
+temporary generated mzML before upload. Source acquisitions remain read-only.
+
+The development Compose build installs mzMLPy and Spxtacular from their published main
+branches. Override `SPECTARR_MZMLPY_BUILD_CONTEXT` or
+`SPECTARR_SPXTACULAR_BUILD_CONTEXT` to test a different Git ref or local BuildKit context.
 
 For continuous API-backed execution, run:
 

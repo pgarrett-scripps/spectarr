@@ -17,6 +17,7 @@ class FakeApi:
         self.data = bytearray()
         self.bundle_data: dict[str, bytearray] = {}
         self.create_calls = 0
+        self.create_keys: list[str] = []
         self.chunk_calls: list[tuple[str | None, int, bytes]] = []
         self.completed = 0
         self.deduplicated = False
@@ -24,6 +25,7 @@ class FakeApi:
 
     def create_upload(self, token, key, **payload):
         self.create_calls += 1
+        self.create_keys.append(key)
         if self.deduplicated:
             return {"id": "upload-1", "state": "completed", "artifact_id": "existing"}
         if payload.get("bundle_manifest"):
@@ -99,6 +101,7 @@ class UploaderTests(unittest.TestCase):
         self.assertEqual(artifact_id, "artifact-1")
         self.assertFalse(deduplicated)
         self.assertEqual(api.completed, 1)
+        self.assertEqual(api.create_keys, [f"agent-upload:{item.id}"])
 
     def test_resumes_from_server_offset(self) -> None:
         source = self.root / "sample.raw"

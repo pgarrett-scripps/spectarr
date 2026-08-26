@@ -2,6 +2,9 @@
 server_url = "https://spectarr.example"
 watch_paths = ["D:/Instrument/Exports", "D:/Instrument/OpenFormats"]
 state_db = "C:/ProgramData/Spectarr Agent/queue.sqlite3"
+log_file = "C:/ProgramData/Spectarr Agent/logs/agent.log"
+log_max_bytes = 10485760
+log_backup_count = 5
 agent_name = "orbitrap-01"
 
 # Leave experiment_id unset to use this agent's backend-managed inbox.

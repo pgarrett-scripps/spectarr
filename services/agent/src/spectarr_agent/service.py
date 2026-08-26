@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 import time
-from pathlib import Path
 from typing import Callable
 
 from .api import ApiError, SpectarrAgentApi
 from .config import AgentConfig
 from .discovery import AcquisitionChanged, AcquisitionScanner, Candidate
-from .state import AgentState, QueueItem
+from .state import AgentState
 from .uploader import ResumableUploader, SourceUnavailable
 
 
@@ -146,25 +146,30 @@ class AcquisitionAgent:
             pass
         self.heartbeat_if_due(force=True)
 
-    def run_forever(self) -> None:
+    def run_forever(self, stop_event: threading.Event | None = None) -> None:
         LOGGER.info("Watching %d acquisition path(s)", len(self.config.watch_paths))
-        while True:
+        while stop_event is None or not stop_event.is_set():
             started = time.monotonic()
             self.scan_once()
             self.heartbeat_if_due()
             self.upload_one()
             elapsed = time.monotonic() - started
-            self.sleep(max(0.1, self.config.poll_interval_seconds - elapsed))
+            delay = max(0.1, self.config.poll_interval_seconds - elapsed)
+            if stop_event is not None:
+                stop_event.wait(delay)
+            else:
+                self.sleep(delay)
 
     def _credentials(self) -> tuple[str, str]:
         agent_id = self.state.metadata("agent_id")
         token = self.state.metadata("agent_token")
+        if self.config.agent_id and self.config.agent_token:
+            if (agent_id, token) != (self.config.agent_id, self.config.agent_token):
+                self.state.set_metadata("agent_id", self.config.agent_id)
+                self.state.set_metadata("agent_token", self.config.agent_token)
+            return self.config.agent_id, self.config.agent_token
         if agent_id and token:
             return agent_id, token
-        if self.config.agent_id and self.config.agent_token:
-            self.state.set_metadata("agent_id", self.config.agent_id)
-            self.state.set_metadata("agent_token", self.config.agent_token)
-            return self.config.agent_id, self.config.agent_token
         if not self.config.api_key:
             raise ApiError(401, "Agent is not registered and no bootstrap API key is configured")
         registration = self.api.register(

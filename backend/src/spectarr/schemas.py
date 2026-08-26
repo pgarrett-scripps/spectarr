@@ -555,13 +555,18 @@ class AgentRegister(BaseModel):
 
 
 class AgentUpdate(BaseModel):
-    destination_mode: Literal["inbox", "direct"]
+    destination_mode: Literal["inbox", "direct"] | None = None
     destination_experiment_id: str | None = None
+    enabled: bool | None = None
 
     @model_validator(mode="after")
     def validate_destination(self) -> AgentUpdate:
         if self.destination_mode == "direct" and not self.destination_experiment_id:
             raise ValueError("Direct destination requires destination_experiment_id")
+        if self.destination_mode is None and self.destination_experiment_id is not None:
+            raise ValueError("destination_experiment_id requires destination_mode")
+        if self.destination_mode is None and self.enabled is None:
+            raise ValueError("At least one agent setting is required")
         return self
 
 

@@ -103,6 +103,7 @@ class WorkerTests(unittest.TestCase):
             metadata = __import__("json").loads(api.upload[2]["metadata_json"])
             self.assertEqual(metadata["converter_library_version"], "1.2.0")
             self.assertEqual(metadata["converter_command"], ["docker", "run", "pwiz:1"])
+            self.assertEqual(metadata["container_format"], "plain")
 
     def test_unknown_recipe_marks_job_failed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

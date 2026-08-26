@@ -1,4 +1,4 @@
-import { Check, Clipboard, Plus, RadioTower, RotateCw, Server, Settings2, TriangleAlert } from 'lucide-react'
+import { Check, Clipboard, KeyRound, Plus, Power, RadioTower, RotateCw, Server, Settings2, TriangleAlert } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { api } from '../api/client'
 import { useResource } from '../api/useResource'
@@ -15,6 +15,7 @@ export function Agents() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [enrollment, setEnrollment] = useState<{ id: string, token: string } | null>(null)
+  const [rotatedToken, setRotatedToken] = useState<{ name: string, token: string } | null>(null)
   const [copied, setCopied] = useState(false)
   const [registrationMode, setRegistrationMode] = useState<'inbox' | 'direct'>('inbox')
   const [registrationProjectId, setRegistrationProjectId] = useState('')
@@ -75,6 +76,31 @@ export function Agents() {
     }
   }
 
+  const setEnabled = async (agent: InstrumentAgent) => {
+    const action = agent.enabled ? 'disable' : 'enable'
+    if (!window.confirm(`${action === 'disable' ? 'Disable' : 'Enable'} ${agent.name}?`)) return
+    setError(null)
+    try {
+      await api.updateAgentEnabled(agent.id, !agent.enabled)
+      resource.refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : `Could not ${action} the agent`)
+    }
+  }
+
+  const rotateToken = async (agent: InstrumentAgent) => {
+    if (!window.confirm(`Rotate the token for ${agent.name}? The current token will stop working immediately.`)) return
+    setError(null)
+    try {
+      const result = await api.rotateAgentToken(agent.id)
+      setCopied(false)
+      setRotatedToken({ name: agent.name, token: result.token })
+      resource.refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not rotate the agent token')
+    }
+  }
+
   return <>
     <PageHeader title="Instrument agents" description="Monitor acquisition-folder watchers and their upload queues." actions={<><button className="button button-secondary" onClick={resource.refresh}><RotateCw size={15} /> Refresh</button><button className="button button-primary" onClick={() => {
       setEnrollment(null)
@@ -97,7 +123,7 @@ export function Agents() {
       <div className="agent-card-head"><span className="storage-large-icon"><RadioTower size={20} /></span><span className={`health health-${agent.status === 'online' ? 'healthy' : agent.status}`}><i />{agent.status}</span></div>
       <h2>{agent.name}</h2><p>{agent.platform} · version {agent.version}</p>
       <dl className="agent-stats"><div><dt>Destination</dt><dd>{destinationLabel(agent, experiments.data, projects.data)}</dd></div><div><dt>Backlog</dt><dd>{agent.backlog} acquisitions</dd></div><div><dt>Last seen</dt><dd>{agent.lastSeenAt ? formatRelativeDate(agent.lastSeenAt) : 'Never'}</dd></div><div><dt>Watch paths</dt><dd>{agent.watchPaths.join(', ') || 'Configured on agent'}</dd></div></dl>
-      <button className="button button-ghost button-small agent-configure" onClick={() => openConfiguration(agent)}><Settings2 size={14} /> Configure destination</button>
+      <div className="agent-actions"><button className="button button-ghost button-small" onClick={() => openConfiguration(agent)}><Settings2 size={14} /> Destination</button><button className="button button-ghost button-small" onClick={() => void rotateToken(agent)}><KeyRound size={14} /> Rotate token</button><button className="button button-ghost button-small" onClick={() => void setEnabled(agent)}><Power size={14} /> {agent.enabled ? 'Disable' : 'Enable'}</button></div>
       {agent.lastError && <div className="agent-error"><TriangleAlert size={14} />{agent.lastError}</div>}
     </Panel>)}</div>}
     <Panel title="How ingestion works" subtitle="The agent never modifies active acquisition files">
@@ -125,6 +151,13 @@ export function Agents() {
       }} experimentId={configurationExperimentId} onExperiment={setConfigurationExperimentId} projects={scientificProjects} experiments={experiments.data} /></div>
       {error && <div className="modal-error" role="alert">{error}</div>}
       <div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setConfiguring(null)}>Cancel</button><button type="submit" className="button button-primary" disabled={submitting || (configurationMode === 'direct' && !configurationSelectedExperimentId)}>{submitting ? 'Saving' : 'Save destination'}</button></div></form>
+    </section></div>}
+    {rotatedToken && <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="rotated-token-title">
+      <div className="modal-header"><div><h2 id="rotated-token-title">Token rotated</h2><p>Update {rotatedToken.name}, then restart its Windows service.</p></div><button className="icon-button" aria-label="Close" onClick={() => setRotatedToken(null)}>×</button></div>
+      <div className="token-result"><strong>New agent token</strong><p>This token is shown only once. Replace <code>agent_token</code> in the agent configuration.</p><div className="endpoint enrollment-config"><code>{rotatedToken.token}</code><button className="icon-button" aria-label="Copy rotated token" onClick={() => {
+        setError(null)
+        void navigator.clipboard.writeText(rotatedToken.token).then(() => setCopied(true)).catch(reason => setError(reason instanceof Error ? reason.message : 'Could not copy to the clipboard'))
+      }}>{copied ? <Check size={15} /> : <Clipboard size={15} />}</button></div>{error && <div className="modal-error" role="alert">{error}</div>}<button className="button button-primary" onClick={() => setRotatedToken(null)}>Done</button></div>
     </section></div>}
   </>
 }

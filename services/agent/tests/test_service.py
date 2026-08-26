@@ -126,6 +126,27 @@ class ServiceTests(unittest.TestCase):
         finally:
             state.close()
 
+    def test_updated_dashboard_credential_replaces_saved_token(self) -> None:
+        incoming = self.root / "incoming"
+        incoming.mkdir()
+        state = AgentState(self.root / "queue.db")
+        try:
+            state.set_metadata("agent_id", "agent-from-dashboard")
+            state.set_metadata("agent_token", "agt_old")
+            config = replace(
+                self.config(),
+                api_key=None,
+                agent_id="agent-from-dashboard",
+                agent_token="agt_rotated",
+            ).validate()
+            api = ServiceApi()
+            agent = AcquisitionAgent(config, state, api, clock=lambda: self.now, sleep=lambda _: None)
+            agent.heartbeat_if_due(force=True)
+            self.assertEqual(state.metadata("agent_token"), "agt_rotated")
+            self.assertEqual(api.heartbeats[0][1], "agt_rotated")
+        finally:
+            state.close()
+
     def test_dry_run_hashes_but_does_not_queue_or_register(self) -> None:
         incoming = self.root / "incoming"
         incoming.mkdir()

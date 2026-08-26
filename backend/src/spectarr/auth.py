@@ -208,7 +208,12 @@ async def require_request_access(
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing required scope: {required_scope}")
     project_id = project_id_for_request(session, request)
     if project_id:
-        require_project_access(session, principal, project_id, write=not request.method in {"GET", "HEAD", "OPTIONS"})
+        require_project_access(
+            session,
+            principal,
+            project_id,
+            write=request.method not in {"GET", "HEAD", "OPTIONS"},
+        )
     request.state.principal = principal
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         session.add(

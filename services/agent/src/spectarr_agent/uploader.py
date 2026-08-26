@@ -65,7 +65,7 @@ class ResumableUploader:
             }
         response = self.api.create_upload(
             self.agent_token,
-            f"agent-upload:{item.checksum}",
+            f"agent-upload:{item.id}",
             run_id=item.run_id,
             run=item.run,
             filename=item.source_name,

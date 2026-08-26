@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import os
 import re
@@ -13,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Protocol
 from xml.etree import ElementTree
+
+from spxtacular import write_indexed_mzml_gzip
 
 from .models import ConversionRequest, ConversionResult, OutputArtifact, OutputFormat
 from .recipes import Recipe, compile_recipe, get_recipe
@@ -214,7 +217,7 @@ class ConversionService:
                 raise RuntimeError(f"msconvert exited with status {report.return_code}")
             if progress:
                 progress("validating", 0.9)
-            outputs = self._discover_and_validate(output_dir, recipe.output_format)
+            outputs = self._discover_and_validate(output_dir, recipe.output_format, progress)
             finished = datetime.now(timezone.utc)
             return ConversionResult(
                 job_id=request.job_id,
@@ -274,7 +277,12 @@ class ConversionService:
             raise ValueError("Scratch directory already exists for this job") from error
         return job_dir
 
-    def _discover_and_validate(self, output_dir: Path, output_format: OutputFormat) -> list[OutputArtifact]:
+    def _discover_and_validate(
+        self,
+        output_dir: Path,
+        output_format: OutputFormat,
+        progress: Callable[[str, float], None] | None = None,
+    ) -> list[OutputArtifact]:
         suffix = f".{output_format.value.lower()}"
         candidates = sorted(path for path in output_dir.rglob("*") if path.is_file() and path.suffix.lower() == suffix)
         if not candidates:
@@ -282,15 +290,40 @@ class ConversionService:
         artifacts: list[OutputArtifact] = []
         for path in candidates:
             self._validate_file(path, output_format)
+            artifact_path = path
+            if output_format == OutputFormat.MZML:
+                if progress:
+                    progress("indexing", 0.95)
+                artifact_path = path.with_name(f"{path.name}.gz")
+                write_indexed_mzml_gzip(path, artifact_path)
+                self._validate_indexed_mzml(artifact_path)
+                path.unlink()
             artifacts.append(
                 OutputArtifact(
-                    path=str(path),
+                    path=str(artifact_path),
                     format=output_format.value,
-                    byte_size=path.stat().st_size,
-                    sha256=self._sha256(path),
+                    byte_size=artifact_path.stat().st_size,
+                    sha256=self._sha256(artifact_path),
                 )
             )
         return artifacts
+
+    @staticmethod
+    def _validate_indexed_mzml(path: Path) -> None:
+        try:
+            with gzip.open(path, "rb") as stream:
+                root_name = None
+                for event, element in ElementTree.iterparse(
+                    stream, events=("start", "end")
+                ):
+                    if root_name is None:
+                        root_name = element.tag.rsplit("}", 1)[-1]
+                    if event == "end":
+                        element.clear()
+        except (OSError, ElementTree.ParseError) as error:
+            raise ValueError(f"Invalid self-indexed mzML gzip: {path.name}") from error
+        if root_name not in {"mzML", "indexedmzML"}:
+            raise ValueError(f"Unexpected mzML root element in {path.name}")
 
     @staticmethod
     def _validate_file(path: Path, output_format: OutputFormat) -> None:

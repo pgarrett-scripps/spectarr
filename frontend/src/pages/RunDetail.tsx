@@ -5,6 +5,7 @@ import { api, downloadArtifact } from '../api/client'
 import { useResource } from '../api/useResource'
 import { formatBytes, formatRelativeDate, RunStatusBadge } from '../components/Data'
 import { ApiErrorBanner, PageHeader, Panel } from '../components/Page'
+import { SpectrumExplorer } from '../components/SpectrumExplorer'
 import type { ConversionFormat, Run } from '../types'
 
 export function RunDetail() {
@@ -96,6 +97,9 @@ export function RunDetail() {
         <Panel title="Total ion chromatogram" subtitle={run.extraction ? `Extracted by ${run.extraction.extractor} ${run.extraction.extractorVersion}` : 'No extraction result is available'}>
           <Chromatogram points={run.extraction?.tic ?? []} />
         </Panel>
+        <Panel title="Spectrum viewer" subtitle="Spxtacular spectrum transport from RAW, mzML, MGF, or MS2 artifacts">
+          <SpectrumExplorer artifacts={run.artifacts} preferredMsLevel={preferredSpectrumMsLevel(run)} spectrumCounts={run.extraction?.spectraByMsLevel} />
+        </Panel>
         <Panel title="Scientific metadata" subtitle="Versioned observations extracted from the source artifact">
           {run.extraction ? <div className="science-grid">
             <ScienceValue label="MS levels" value={Object.entries(run.extraction.spectraByMsLevel).map(([level, count]) => `MS${level}: ${count.toLocaleString()}`).join(' · ') || 'Unknown'} />
@@ -156,6 +160,12 @@ function formatDuration(minutes?: number) {
   if (!minutes) return 'Unknown'
   if (minutes < 1) return `${(minutes * 60).toFixed(1).replace(/\.0$/, '')} sec`
   return `${minutes.toFixed(1).replace(/\.0$/, '')} min`
+}
+
+function preferredSpectrumMsLevel(run: Run): 1 | 2 {
+  const levels = run.extraction?.spectraByMsLevel
+  if (levels && !levels['1'] && levels['2']) return 2
+  return 1
 }
 
 function ScienceValue({ label, value }: { label: string, value: string }) {

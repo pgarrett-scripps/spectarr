@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     login_max_attempts: int = 5
     login_window_seconds: int = 300
     login_lock_seconds: int = 900
+    spectrum_reader_url: str | None = None
+    spectrum_reader_timeout_seconds: float = 30.0
 
     @field_validator("storage_root", mode="before")
     @classmethod
@@ -77,14 +79,37 @@ class Settings(BaseSettings):
     @classmethod
     def parse_import_roots(cls, value: object) -> object:
         if isinstance(value, str):
-            return [Path(item).expanduser() for item in value.split(",") if item.strip()]
+            return [
+                Path(item).expanduser() for item in value.split(",") if item.strip()
+            ]
+        return value
+
+    @field_validator("spectrum_reader_url", mode="before")
+    @classmethod
+    def normalize_spectrum_reader_url(cls, value: object) -> object:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        if normalized and not normalized.startswith(("http://", "https://")):
+            raise ValueError("spectrum_reader_url must use http or https")
+        return normalized or None
+
+    @field_validator("spectrum_reader_timeout_seconds")
+    @classmethod
+    def validate_spectrum_reader_timeout(cls, value: float) -> float:
+        if value <= 0 or value > 300:
+            raise ValueError(
+                "spectrum_reader_timeout_seconds must be greater than 0 and at most 300"
+            )
         return value
 
     @field_validator("local_user")
     @classmethod
     def validate_local_user(cls, value: str) -> str:
         normalized = value.strip().lower()
-        allowed = all(character.isalnum() or character in "._-" for character in normalized)
+        allowed = all(
+            character.isalnum() or character in "._-" for character in normalized
+        )
         if len(normalized) < 3 or not allowed:
             raise ValueError(
                 "local_user must be at least three characters and use letters, numbers, dots, dashes, or underscores"
@@ -114,11 +139,22 @@ class Settings(BaseSettings):
     def validate_production_security(self) -> Settings:
         if self.environment.casefold() != "production":
             return self
-        weak_markers = {"development-only-change-me", "spectarr-local-development-secret-change-me"}
+        weak_markers = {
+            "development-only-change-me",
+            "spectarr-local-development-secret-change-me",
+        }
         if len(self.secret_key) < 32 or self.secret_key in weak_markers:
-            raise ValueError("production requires a unique SPECTARR_SECRET_KEY of at least 32 characters")
-        if not self.worker_token or len(self.worker_token) < 32 or self.worker_token == "spectarr-local-worker":
-            raise ValueError("production requires a unique SPECTARR_WORKER_TOKEN of at least 32 characters")
+            raise ValueError(
+                "production requires a unique SPECTARR_SECRET_KEY of at least 32 characters"
+            )
+        if (
+            not self.worker_token
+            or len(self.worker_token) < 32
+            or self.worker_token == "spectarr-local-worker"
+        ):
+            raise ValueError(
+                "production requires a unique SPECTARR_WORKER_TOKEN of at least 32 characters"
+            )
         if self.database_url.startswith("sqlite"):
             raise ValueError("production requires PostgreSQL")
         if "spectarr:spectarr@" in self.database_url:

@@ -2,7 +2,7 @@
 
 The acquisition agent runs beside an instrument workstation or file server. It watches configured locations, waits for acquisitions to stop changing, verifies their content, and uploads them to Spectarr through resumable API sessions.
 
-It supports Windows and Linux with Python 3.11 or newer. It has no third-party runtime dependencies.
+The standalone Windows installer includes its own runtime. Source installs support Windows and Linux with Python 3.11 or newer and have no third-party runtime dependencies.
 
 ## Safety model
 
@@ -25,7 +25,19 @@ The SQLite queue stores paths and upload state, not copies of acquisitions. Sour
 
 Keep the state database on a local disk. SQLite locking is not reliable on every network filesystem.
 
-## Install
+## Install on Windows
+
+Download the signed `spectarr-agent-<version>-windows-x64.msi` from the Spectarr release. Install it, then open **Configure Spectarr Agent** from the Start menu. Enter the server URL, acquisition folder, agent ID, and one-time token from the Instrument agents dashboard.
+
+The installer registers `SpectarrAgent` with the Windows Service Control Manager. Configuration, queue state, and rotating logs are stored under `C:\ProgramData\Spectarr Agent`. The service runs as `LocalService`. Grant `NT AUTHORITY\LOCAL SERVICE` read access to each acquisition folder.
+
+Run the installed `Upgrade-Agent.ps1` with the new MSI path to upgrade without replacing the configuration or queue. The script verifies the installer signature and restarts the service. Remove the application through Windows Installed apps. Uninstall preserves the configuration, logs, and queue by default.
+
+After rotating a token in the dashboard, run **Configure Spectarr Agent** again with the new token. The configured credential replaces the saved credential when the service restarts.
+
+For a network share, configure a UNC path and a service identity that has read access. Do not use a mapped drive letter.
+
+## Install from source
 
 From this directory:
 
@@ -34,7 +46,7 @@ python -m venv .venv
 .venv/bin/python -m pip install .
 ```
 
-On Windows, the install command is:
+For Windows development without the installer:
 
 ```powershell
 py -m venv .venv
@@ -130,7 +142,7 @@ CLI options override TOML. Environment variables override TOML and are overridde
 
 On Linux, run the command under systemd with a dedicated unprivileged account. Grant that account read-only access to instrument exports and write access only to the directory containing `queue.sqlite3`.
 
-On Windows, run the same command through Task Scheduler, WinSW, or NSSM under a dedicated service account. Grant read access to acquisition folders and modify access only to the state database directory.
+On Windows, use the release MSI. It contains a native Service Control Manager host and does not require Python, Docker, WinSW, or NSSM. Grant the service identity read access to acquisition folders and modify access only to `C:\ProgramData\Spectarr Agent`.
 
 Use HTTPS when the agent connects across a network. Do not expose the administrator bootstrap key in command history or service arguments.
 
@@ -167,4 +179,4 @@ Single files use one offset. Bundle status contains an independent offset for ev
 python -m pytest
 ```
 
-The suite covers configuration, ignored patterns, stability windows, symlink rejection, immutable hashing, SQLite recovery, checksum deduplication, registration, exact HTTP headers, file resume, native bundle resume, offline retry, heartbeat, and dry-run behavior.
+The suite covers configuration, ignored patterns, stability windows, symlink rejection, immutable hashing, SQLite migration and recovery, occurrence identity, checksum storage deduplication, credential rotation, registration, exact HTTP headers, file resume, native bundle resume, offline retry, heartbeat, and dry-run behavior.

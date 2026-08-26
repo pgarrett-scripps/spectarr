@@ -5,6 +5,7 @@
 .ruff_cache/
 .mypy_cache/
 .venv/
+.worktrees/
 __pycache__/
 *.py[cod]
 *.sqlite3

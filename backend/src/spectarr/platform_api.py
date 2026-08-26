@@ -10,13 +10,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy import and_, func, or_, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .api import StorageDep, commit_or_conflict, create_artifact_record, fetch_or_404
 from .auth import (
     Principal,
-    authenticate_token,
     hash_password,
     hash_secret,
     issue_secret,
@@ -31,7 +29,6 @@ from .models import (
     Agent,
     ApiToken,
     Artifact,
-    ArtifactRole,
     ArtifactState,
     AuditLog,
     AutomationRule,
@@ -660,17 +657,41 @@ async def update_agent(
 ) -> Agent:
     require_admin(request)
     agent = fetch_or_404(session, Agent, agent_id)
-    if payload.destination_mode == "inbox":
-        ensure_agent_inbox(session, storage, agent)
-    else:
+    destination = None
+    if payload.destination_mode == "direct":
         destination = fetch_or_404(session, Experiment, payload.destination_experiment_id)
         if destination.project.system_key:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Direct destination cannot be a system inbox")
+    if payload.enabled is not None:
+        agent.enabled = payload.enabled
+        agent.status = "offline" if payload.enabled else "disabled"
+    if payload.destination_mode == "inbox":
+        ensure_agent_inbox(session, storage, agent)
+    elif payload.destination_mode == "direct":
         agent.destination_mode = "direct"
         agent.destination_experiment_id = destination.id
         session.commit()
         session.refresh(agent)
+    else:
+        session.commit()
+        session.refresh(agent)
     return agent
+
+
+@platform_router.post("/agents/{agent_id}/rotate-token", tags=["agents"])
+async def rotate_agent_token(
+    agent_id: str,
+    request: Request,
+    session: SessionDep,
+) -> dict:
+    require_admin(request)
+    agent = fetch_or_404(session, Agent, agent_id)
+    raw = issue_secret("agt")
+    agent.token_prefix = raw[:12]
+    agent.token_hash = hash_secret(raw)
+    session.commit()
+    session.refresh(agent)
+    return {**AgentRead.model_validate(agent).model_dump(), "token": raw}
 
 
 @platform_router.get("/instruments/{instrument_id}/agent-status", tags=["agents"])

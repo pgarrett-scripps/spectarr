@@ -20,6 +20,7 @@ class ConfigTests(unittest.TestCase):
 server_url = "http://from-file:8000"
 watch_paths = ["incoming"]
 state_db = "queue.db"
+log_file = "agent.log"
 experiment_id = "experiment-1"
 stability_seconds = 90
 """
@@ -29,6 +30,7 @@ stability_seconds = 90
             self.assertEqual(config.server_url, "https://spectarr.example")
             self.assertEqual(config.stability_seconds, 90)
             self.assertEqual(config.experiment_id, "experiment-1")
+            self.assertEqual(config.log_file, Path("agent.log").resolve())
 
     def test_accepts_backend_managed_inbox_and_rejects_two_run_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

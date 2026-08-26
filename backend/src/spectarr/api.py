@@ -38,7 +38,6 @@ from .models import (
     RunAnnotation,
     RunSample,
     Sample,
-    SdrfDocument,
     UserRole,
 )
 from .schemas import (
@@ -79,6 +78,7 @@ from .schemas import (
     SubmissionPreviewRead,
 )
 from .storage import LocalArtifactStorage, StoredObject
+from .spectrum_reader import SpectrumReaderClient, SpectrumReaderError
 from .pipeline import schedule_source_pipeline
 from .processing import (
     batch_view,
@@ -133,6 +133,17 @@ async def get_storage(settings: SettingsDep) -> LocalArtifactStorage:
 
 
 StorageDep = Annotated[LocalArtifactStorage, Depends(get_storage)]
+
+
+async def get_spectrum_reader(settings: SettingsDep) -> SpectrumReaderClient:
+    return SpectrumReaderClient(
+        settings.spectrum_reader_url,
+        settings.worker_token,
+        settings.spectrum_reader_timeout_seconds,
+    )
+
+
+SpectrumReaderDep = Annotated[SpectrumReaderClient, Depends(get_spectrum_reader)]
 
 
 async def require_worker_token(
@@ -940,6 +951,52 @@ async def get_artifact(artifact_id: str, session: SessionDep) -> Artifact:
     return fetch_or_404(session, Artifact, artifact_id)
 
 
+@router.get("/artifacts/{artifact_id}/spectrum", tags=["spectra"])
+async def get_artifact_spectrum(
+    artifact_id: str,
+    session: SessionDep,
+    storage: StorageDep,
+    spectrum_reader: SpectrumReaderDep,
+    ms_level: int = Query(1, ge=1, le=2),
+    index: int | None = Query(None, ge=0, le=10_000_000),
+    scan_number: int | None = Query(None, ge=0),
+    native_id: str | None = Query(None, min_length=1, max_length=2048),
+) -> dict:
+    artifact = fetch_or_404(session, Artifact, artifact_id)
+    if artifact.state == ArtifactState.MISSING:
+        raise HTTPException(status.HTTP_410_GONE, "Artifact content was purged and can be regenerated")
+    if not artifact.library_path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Artifact has not been materialized in the library")
+    selectors = [index is not None, scan_number is not None, native_id is not None]
+    if sum(selectors) > 1:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Choose only one of index, scan_number, or native_id",
+        )
+    if not any(selectors):
+        index = 0
+    source = storage.resolve_library(artifact.library_path)
+    if not source.exists():
+        raise HTTPException(status.HTTP_410_GONE, "Artifact library content is missing")
+    if not source.is_relative_to(storage.root):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Spectrum reader requires the library to be located inside the shared storage root",
+        )
+    payload = {
+        "relative_path": source.relative_to(storage.root).as_posix(),
+        "ms_level": ms_level,
+        "index": index,
+        "scan_number": scan_number,
+        "native_id": native_id,
+    }
+    try:
+        return await spectrum_reader.read(payload)
+    except SpectrumReaderError as error:
+        mapped_status = error.status if error.status in {400, 403, 404, 409, 422, 502, 503, 504} else 502
+        raise HTTPException(mapped_status, str(error)) from error
+
+
 @router.get("/artifacts/{artifact_id}/download", tags=["artifacts"])
 async def download_artifact(artifact_id: str, session: SessionDep, storage: StorageDep):
     artifact = fetch_or_404(session, Artifact, artifact_id)
@@ -1422,8 +1479,12 @@ def infer_format(filename: str) -> str:
         ".mzml.gz": "mzML",
         ".mzml": "mzML",
         ".mzxml": "mzXML",
+        ".mgf.gz": "MGF",
         ".mgf": "MGF",
+        ".ms2.gz": "MS2",
         ".ms2": "MS2",
+        ".msp.gz": "MSP",
+        ".msp": "MSP",
         ".wiff": "WIFF",
         ".raw": "RAW",
         ".d": "vendor_directory",
@@ -1738,5 +1799,6 @@ def dashboard_format(format_name: str) -> str:
         "mzxml": "mzXML",
         "mgf": "MGF",
         "ms2": "MS2",
+        "msp": "MSP",
         "parquet": "Parquet",
     }.get(normalized, format_name)
