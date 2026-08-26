@@ -2,7 +2,7 @@ FROM msconvert_cli AS msconvert-cli-source
 FROM mzmlpy_source AS mzmlpy-source
 FROM spxtacular_source AS spxtacular-source
 
-FROM docker:27-cli
+FROM docker:29-cli
 
 RUN apk add --no-cache python3 py3-pip
 
