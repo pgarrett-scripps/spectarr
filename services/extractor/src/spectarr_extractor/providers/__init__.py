@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
-from ..models import ExtractionResult
+from ..models import ExtractionResult, SpectrumObservation
 from .base import ParserProvider, ProviderError, ProviderUnavailable
 from .mgf import MgfProvider
 from .ms2 import Ms2Provider
@@ -24,14 +25,26 @@ class ProviderRegistry:
             Ms2Provider(),
         ]
 
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult:
+    def extract(
+        self,
+        path: Path,
+        declared_format: str | None = None,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+        on_provider_start: Callable[[str, str], None] | None = None,
+    ) -> ExtractionResult:
         failures: list[str] = []
         candidates = [provider for provider in self.providers if provider.supports(path, declared_format)]
         if not candidates:
             raise ProviderError(f"No metadata provider supports {declared_format or path.suffix or path.name}")
         for provider in candidates:
             try:
-                result = provider.extract(path, declared_format)
+                if on_provider_start:
+                    on_provider_start(provider.name, provider.version)
+                result = (
+                    provider.extract(path, declared_format, on_spectrum)
+                    if on_spectrum
+                    else provider.extract(path, declared_format)
+                )
             except ProviderUnavailable as error:
                 failures.append(f"{provider.name} unavailable: {error}")
                 continue

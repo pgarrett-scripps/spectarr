@@ -150,6 +150,107 @@ async def test_spectrum_catalog_endpoint_proxies_retention_time_search(
     assert reader.catalog_requests[0]["limit"] == 12
 
 
+async def test_persistent_catalog_filters_pages_and_reads_selected_row(
+    client: AsyncClient, hierarchy: dict[str, str]
+) -> None:
+    artifact = await upload_mgf(client, hierarchy["run_id"])
+    started = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs",
+        json={"extractor": "test", "extractor_version": "1", "schema_version": 1},
+    )
+    assert started.status_code == 201, started.text
+    catalog_id = started.json()["id"]
+    entries = [
+        {
+            "ordinal": ordinal,
+            "ms_level_index": ordinal,
+            "native_id": f"scan={scan}",
+            "scan_number": scan,
+            "ms_level": 2,
+            "retention_time_seconds": 60.0 + ordinal,
+            "precursor_mz": precursor,
+            "precursor_charge": 2,
+            "neutral_mass": precursor * 2 - 2.014552933242,
+            "peak_count": 100 + ordinal,
+            "total_ion_current": 1000.0 * (ordinal + 1),
+            "base_peak_mz": 150.0 + ordinal,
+        }
+        for ordinal, (scan, precursor) in enumerate([(10, 400.2), (11, 500.2), (12, 600.2)])
+    ]
+    appended = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs/{catalog_id}/entries",
+        json={"entries": entries},
+    )
+    assert appended.status_code == 202, appended.text
+    completed = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs/{catalog_id}/complete",
+        json={"spectrum_count": 3},
+    )
+    assert completed.status_code == 200, completed.text
+
+    first = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectra/query",
+        json={
+            "ms_levels": [2],
+            "precursor_mz_min": 450,
+            "sort": "scan_number",
+            "direction": "asc",
+            "limit": 1,
+        },
+    )
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["strategy"] == "persistent"
+    assert body["total"] == 2
+    assert body["items"][0]["scan_number"] == 11
+    assert body["next_cursor"]
+
+    second = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectra/query",
+        json={
+            "ms_levels": [2],
+            "precursor_mz_min": 450,
+            "sort": "scan_number",
+            "direction": "asc",
+            "cursor": body["next_cursor"],
+            "limit": 1,
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["items"][0]["scan_number"] == 12
+
+    reader = FakeSpectrumReader()
+    app.dependency_overrides[get_spectrum_reader] = override_reader(reader)
+    try:
+        selected = await client.get(
+            f"/api/v1/artifacts/{artifact['id']}/spectra/{body['items'][0]['id']}"
+        )
+    finally:
+        app.dependency_overrides.pop(get_spectrum_reader, None)
+    assert selected.status_code == 200, selected.text
+    assert reader.requests[0]["native_id"] == "scan=11"
+
+
+async def test_persistent_catalog_rejects_invalid_completion_count(
+    client: AsyncClient, hierarchy: dict[str, str]
+) -> None:
+    artifact = await upload_mgf(client, hierarchy["run_id"])
+    started = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs",
+        json={"extractor": "test", "extractor_version": "1"},
+    )
+    catalog_id = started.json()["id"]
+    response = await client.post(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalogs/{catalog_id}/complete",
+        json={"spectrum_count": 1},
+    )
+    assert response.status_code == 409
+    status_response = await client.get(
+        f"/api/v1/artifacts/{artifact['id']}/spectrum-catalog"
+    )
+    assert status_response.json()["status"] == "building"
+
+
 async def test_spectrum_endpoint_rejects_multiple_selectors(
     client: AsyncClient, hierarchy: dict[str, str]
 ) -> None:

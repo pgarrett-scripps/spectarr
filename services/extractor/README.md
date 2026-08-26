@@ -30,11 +30,12 @@ SPECTARR_WORKER_ID=extractor-1
 SPECTARR_SERVICE_TOKEN=
 SPECTARR_WORKER_TOKEN=
 SPECTARR_HEARTBEAT_SECONDS=10
+SPECTARR_CATALOG_BATCH_SIZE=500
 ```
 
 `SPECTARR_API_KEY` is accepted as an alias for `SPECTARR_SERVICE_TOKEN`.
 
-The API and extractor must mount the same storage directory at the configured local storage root. Artifact `relative_path` values are resolved beneath that root and path escapes are rejected.
+The API and extractor must mount the same storage directory at the configured local storage root. Artifact `relative_path` values are resolved beneath that root and path escapes are rejected. During extraction, normalized spectrum metadata is posted in batches of up to 1,000 rows. A catalog becomes queryable only after its submitted row count is verified and the API activates it in the same transaction that removes the previous catalog.
 
 ## OpenMassSpec provider
 
@@ -68,4 +69,4 @@ spectarr-spectrum-server --host 0.0.0.0 --port 8002
 
 The service requires `SPECTARR_WORKER_TOKEN` on every spectrum request and resolves only storage-relative paths beneath `SPECTARR_LOCAL_STORAGE_ROOT`. Compose mounts that directory read-only. The image includes the .NET 8 runtime and configures Python.NET for Thermo RawFileReader support. Unsupported vendor RAW formats should be converted to mzML for visualization.
 
-Spectrum selection supports a zero-based position within MS1 or MS2, a scan number, or a native ID. Native IDs use keyed random access when the reader provides it. After the first spectrum is returned, the service warms a bounded, peak-free catalog in the background and keeps up to eight unchanged artifact and MS-level catalogs in memory. This enables paged browsing plus retention-time, precursor m/z, scan-number, and native-ID searches without adding companion files to the library.
+Spectrum selection supports a zero-based position within MS1 or MS2, a scan number, a persistent catalog row ID, or a native ID. Native IDs use keyed random access when the reader provides it. PostgreSQL stores the primary spectrum metadata catalog and supports indexed filtering with opaque keyset cursors. The reader's bounded in-memory catalog remains a compatibility path for artifacts that predate persistent catalog extraction. Neither path adds a companion file to the managed library.

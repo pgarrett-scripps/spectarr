@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
-from ..models import ExtractionResult
+from ..models import ExtractionResult, SpectrumObservation
 
 
 class ProviderError(RuntimeError):
@@ -23,7 +23,12 @@ class ParserProvider(Protocol):
 
     def supports(self, path: Path, declared_format: str | None = None) -> bool: ...
 
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult: ...
+    def extract(
+        self,
+        path: Path,
+        declared_format: str | None = None,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+    ) -> ExtractionResult: ...
 
 
 def normalized_format(path: Path, declared_format: str | None) -> str:

@@ -6,7 +6,7 @@ import importlib
 import importlib.util
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..models import ExtractionResult, SpectrumObservation, SummaryBuilder
 from .base import ProviderError, ProviderUnavailable, normalized_format
@@ -52,9 +52,14 @@ class OpenMassSpecProvider:
         }
         return source_format in supported
 
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult:
+    def extract(
+        self,
+        path: Path,
+        declared_format: str | None = None,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+    ) -> ExtractionResult:
         module = self._module()
-        builder = SummaryBuilder()
+        builder = SummaryBuilder(on_spectrum=on_spectrum)
         try:
             iterator = module.iter_spectra(str(path))
             for spectrum in iterator:
@@ -69,6 +74,8 @@ class OpenMassSpecProvider:
                 mobility_count, mobility_min, mobility_max = _mz_stats(mobility_values)
                 builder.add(
                     SpectrumObservation(
+                        native_id=_string(_attribute(spectrum, "native_id", "id")),
+                        scan_number=_integer(_attribute(spectrum, "scan_number", "scan")),
                         ms_level=int(_attribute(spectrum, "ms_level") or 1),
                         retention_time_seconds=_number(_attribute(spectrum, "retention_time_sec")),
                         polarity=_polarity(_attribute(spectrum, "polarity")),
@@ -78,9 +85,11 @@ class OpenMassSpecProvider:
                         mz_max=mz_max,
                         tic=tic,
                         bpc=bpc,
+                        base_peak_mz=_base_peak_mz(mz_values, intensity_values),
                         precursor_mz=_number(_attribute(spectrum, "precursor_mz", "selected_ion_mz")),
                         precursor_charge=_integer(_attribute(spectrum, "precursor_charge", "charge")),
                         collision_energy=_number(_attribute(spectrum, "collision_energy", "collision_energy_ev")),
+                        activation_type=_string(_attribute(spectrum, "activation_type", "activation")),
                         ion_mobility=mobility,
                         ion_mobility_min=mobility_min,
                         ion_mobility_max=mobility_max,
@@ -154,6 +163,24 @@ def _intensity_stats(values: Any) -> tuple[float | None, float | None]:
             total += number
             maximum = number if maximum is None else max(maximum, number)
         return total, maximum
+
+
+def _base_peak_mz(mz_values: Any, intensity_values: Any) -> float | None:
+    if mz_values is None or intensity_values is None:
+        return None
+    try:
+        if len(intensity_values) == 0:
+            return None
+        return float(mz_values[intensity_values.argmax()])
+    except (AttributeError, TypeError, ValueError, IndexError):
+        best_mz = None
+        best_intensity = None
+        for mz_value, intensity in zip(mz_values, intensity_values):
+            number = float(intensity)
+            if best_intensity is None or number > best_intensity:
+                best_intensity = number
+                best_mz = float(mz_value)
+        return best_mz
 
 
 def _first_number(value: Any) -> float | None:

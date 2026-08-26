@@ -1,48 +1,77 @@
-import { ChevronLeft, ChevronRight, ListFilter, LoaderCircle, RotateCcw, Search } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Filter, LoaderCircle, RotateCcw, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { api } from '../api/client'
-import type { Artifact, SpectrumCatalogPage, SpectrumSummary, SpxtacularSpectrum } from '../types'
+import { api, ApiError } from '../api/client'
+import type { Artifact, SpectrumCatalogPage, SpectrumQueryRequest, SpectrumSummary, SpxtacularSpectrum } from '../types'
 
 type SpectrumLoader = typeof api.spectrum
 type SpectrumCatalogLoader = typeof api.spectra
-type SpectrumSelection = { index?: number, scanNumber?: number, nativeId?: string }
-type FindMode = 'rt' | 'scan' | 'precursor' | 'native'
+type SpectrumQueryLoader = typeof api.querySpectra
+type CatalogSpectrumLoader = typeof api.catalogSpectrum
+type SpectrumSelection = { entryId?: string, index?: number, scanNumber?: number, nativeId?: string }
+type SortField = NonNullable<SpectrumQueryRequest['sort']>
+
+interface FilterDraft {
+  ms1: boolean
+  ms2: boolean
+  scanMin: string
+  scanMax: string
+  rtMin: string
+  rtMax: string
+  precursorMin: string
+  precursorMax: string
+  charge: string
+  peaksMin: string
+  peaksMax: string
+  ticMin: string
+  neutralMassMin: string
+  neutralMassMax: string
+  basePeakMin: string
+  basePeakMax: string
+  nativeId: string
+  polarity: string
+  representation: string
+}
 
 const supportedFormats = new Set(['RAW', 'mzML', 'MGF', 'MS2', 'MSP'])
-const catalogPageSize = 12
+const catalogPageSize = 50
 
-export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, chromatogram = [], loadSpectrum = api.spectrum, loadCatalog = api.spectra }: { artifacts: Artifact[], preferredMsLevel?: 1 | 2, spectrumCounts?: Record<string, number>, chromatogram?: Array<{ time: number, intensity: number }>, loadSpectrum?: SpectrumLoader, loadCatalog?: SpectrumCatalogLoader }) {
+export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, chromatogram = [], loadSpectrum = api.spectrum, loadCatalog, loadQuery, loadCatalogSpectrum = api.catalogSpectrum }: { artifacts: Artifact[], preferredMsLevel?: 1 | 2, spectrumCounts?: Record<string, number>, chromatogram?: Array<{ time: number, intensity: number }>, loadSpectrum?: SpectrumLoader, loadCatalog?: SpectrumCatalogLoader, loadQuery?: SpectrumQueryLoader, loadCatalogSpectrum?: CatalogSpectrumLoader }) {
   const candidates = useMemo(
     () => artifacts.filter(artifact => artifact.status === 'verified' && supportedFormats.has(artifact.format)),
     [artifacts]
   )
   const [artifactId, setArtifactId] = useState(() => preferredArtifact(candidates)?.id ?? '')
   const selectedArtifact = candidates.find(artifact => artifact.id === artifactId) ?? preferredArtifact(candidates)
-  const [msLevel, setMsLevel] = useState<1 | 2>(() => defaultMsLevel(selectedArtifact, preferredMsLevel))
   const [selection, setSelection] = useState<SpectrumSelection>({ index: 0 })
   const [summary, setSummary] = useState<SpectrumSummary | null>(null)
   const [spectrum, setSpectrum] = useState<SpxtacularSpectrum | null>(null)
   const [loading, setLoading] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalog, setCatalog] = useState<SpectrumCatalogPage | null>(null)
-  const [browseOpen, setBrowseOpen] = useState(false)
-  const [findMode, setFindMode] = useState<FindMode>('rt')
-  const [findValue, setFindValue] = useState('')
+  const [filters, setFilters] = useState<FilterDraft>(() => initialFilters(selectedArtifact, preferredMsLevel))
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [sort, setSort] = useState<SortField>('retention_time_seconds')
+  const [direction, setDirection] = useState<'asc' | 'desc'>('asc')
+  const [cursor, setCursor] = useState<string | undefined>()
+  const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([])
+  const [catalogMode, setCatalogMode] = useState<'persistent' | 'fallback'>('persistent')
+  const [catalogAction, setCatalogAction] = useState<'idle' | 'queuing' | 'queued'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
-  const knownCount = spectrumCounts?.[String(msLevel)]
-  const currentIndex = summary?.index ?? selection.index ?? 0
-  const maxIndex = knownCount === undefined ? Math.max(currentIndex + 1, catalog?.total ? catalog.total - 1 : 10_000_000) : Math.max(0, knownCount - 1)
-  const ms1Unavailable = selectedArtifact?.format === 'MGF' || selectedArtifact?.format === 'MS2' || selectedArtifact?.format === 'MSP' || spectrumCounts?.['1'] === 0
-  const ms2Unavailable = spectrumCounts?.['2'] === 0
+  const msLevel = summary?.ms_level === 1 ? 1 : summary?.ms_level === 2 ? 2 : defaultMsLevel(selectedArtifact, preferredMsLevel)
+  const query = useMemo(() => buildSpectrumQuery(filters, sort, direction, cursor), [cursor, direction, filters, sort])
 
   useEffect(() => {
     if (!selectedArtifact) return
     let active = true
     setLoading(true)
     setError(null)
-    loadSpectrum(selectedArtifact.id, { msLevel, ...selection })
+    const { entryId, ...legacySelection } = selection
+    const request = entryId
+      ? loadCatalogSpectrum(selectedArtifact.id, entryId)
+      : loadSpectrum(selectedArtifact.id, { msLevel, ...legacySelection })
+    request
       .then(value => {
         if (active) setSpectrum(value)
       })
@@ -57,7 +86,50 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
     return () => {
       active = false
     }
-  }, [loadSpectrum, msLevel, refresh, selectedArtifact, selection])
+  }, [loadCatalogSpectrum, loadSpectrum, msLevel, refresh, selectedArtifact, selection])
+
+  useEffect(() => {
+    if (!selectedArtifact) return
+    let active = true
+    const timer = window.setTimeout(() => {
+      setCatalogLoading(true)
+      setError(null)
+      const queryLoader = loadQuery ?? (loadCatalog ? legacyQueryAdapter(loadCatalog) : api.querySpectra)
+      queryLoader(selectedArtifact.id, query)
+        .then(value => {
+          if (!active) return
+          setCatalog(value)
+          setCatalogMode(value.strategy ?? (value.schema_version === 2 ? 'persistent' : 'fallback'))
+          selectFirstCatalogItem(value, setSummary, setSelection, setSpectrum)
+        })
+        .catch(async reason => {
+          if (!active) return
+          if (!loadQuery && !loadCatalog && reason instanceof ApiError && reason.status === 409) {
+            try {
+              const level = query.msLevels?.[0] === 2 ? 2 : 1
+              const value = await api.spectra(selectedArtifact.id, { msLevel: level, limit: catalogPageSize })
+              if (active) {
+                setCatalog({ ...value, strategy: 'fallback' })
+                setCatalogMode('fallback')
+                selectFirstCatalogItem(value, setSummary, setSelection, setSpectrum)
+              }
+              return
+            } catch (fallbackReason) {
+              reason = fallbackReason
+            }
+          }
+          setCatalog(null)
+          setError(reason instanceof Error ? reason.message : 'Could not query spectra')
+        })
+        .finally(() => {
+          if (active) setCatalogLoading(false)
+        })
+    }, 250)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [loadCatalog, loadQuery, query, selectedArtifact])
 
   if (!selectedArtifact) {
     return <div className="settings-placeholder">No RAW, mzML, MGF, MS2, or MSP artifact is available for spectrum viewing.</div>
@@ -66,117 +138,160 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
   const selectArtifact = (nextId: string) => {
     const artifact = candidates.find(candidate => candidate.id === nextId)
     setArtifactId(nextId)
-    setMsLevel(defaultMsLevel(artifact, preferredMsLevel))
+    setFilters(initialFilters(artifact, preferredMsLevel))
     setSelection({ index: 0 })
     setSummary(null)
     setCatalog(null)
-    setBrowseOpen(false)
+    setCursor(undefined)
+    setCursorHistory([])
   }
 
-  const selectLevel = (level: 1 | 2) => {
-    setMsLevel(level)
-    setSelection({ index: 0 })
-    setSummary(null)
-    setCatalog(null)
-    setBrowseOpen(false)
-  }
-
-  const fetchCatalog = async (query: { offset?: number, rtSeconds?: number, scanNumber?: number, nativeId?: string, precursorMz?: number } = {}) => {
-    setCatalogLoading(true)
-    setError(null)
-    try {
-      const value = await loadCatalog(selectedArtifact.id, { msLevel, limit: catalogPageSize, ...query })
-      setCatalog(value)
-      return value
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not browse spectra')
-      return null
-    } finally {
-      setCatalogLoading(false)
-    }
+  const changeFilters = (values: Partial<FilterDraft>) => {
+    setFilters(current => ({ ...current, ...values }))
+    setCursor(undefined)
+    setCursorHistory([])
   }
 
   const chooseSummary = (item: SpectrumSummary) => {
     setSummary(item)
-    setSelection(item.native_id ? { nativeId: item.native_id } : item.scan_number !== null ? { scanNumber: item.scan_number } : { index: item.index })
+    setSelection(item.id ? { entryId: item.id } : item.native_id ? { nativeId: item.native_id } : item.scan_number !== null ? { scanNumber: item.scan_number } : { index: item.index })
   }
 
-  const stepSpectrum = async (direction: -1 | 1) => {
-    const nextIndex = Math.min(maxIndex, Math.max(0, currentIndex + direction))
-    setSummary(null)
-    setSelection({ index: nextIndex })
-    if (browseOpen) {
-      const page = await fetchCatalog({ offset: Math.max(0, nextIndex - Math.floor(catalogPageSize / 2)) })
-      const item = page?.items.find(candidate => candidate.index === nextIndex)
-      if (item) setSummary(item)
-    }
+  const selectedRowIndex = catalog?.items.findIndex(item => sameSummary(item, summary)) ?? -1
+  const stepSpectrum = (step: -1 | 1) => {
+    if (!catalog?.items.length) return
+    const next = selectedRowIndex < 0 ? 0 : selectedRowIndex + step
+    if (next >= 0 && next < catalog.items.length) chooseSummary(catalog.items[next])
   }
 
-  const findSpectrum = async () => {
-    const value = findValue.trim()
-    if (!value) return
-    const numeric = Number(value)
-    if (findMode !== 'native' && (!Number.isFinite(numeric) || numeric < 0)) {
-      setError('Enter a nonnegative number for this search')
-      return
-    }
-    if (findMode === 'native') {
-      setSummary(null)
-      setSelection({ nativeId: value })
-      return
-    }
-    const page = await fetchCatalog(
-      findMode === 'rt' ? { rtSeconds: numeric * 60 }
-        : findMode === 'scan' ? { scanNumber: Math.floor(numeric) }
-          : findMode === 'precursor' ? { precursorMz: numeric }
-            : {}
-    )
-    const match = page?.items.find(item => item.index === page.match_index) ?? page?.items[0]
-    if (match) {
-      chooseSummary(match)
-      return
-    }
-    if (page) setError('No matching spectrum was found')
+  const nextPage = () => {
+    if (!catalog?.next_cursor) return
+    setCursorHistory(history => [...history, cursor])
+    setCursor(catalog.next_cursor ?? undefined)
   }
 
-  const selectRetentionTime = async (minutes: number) => {
-    const page = await fetchCatalog({ rtSeconds: minutes * 60 })
-    const match = page?.items.find(item => item.index === page.match_index)
-    if (match) chooseSummary(match)
-    else if (page) setError('No spectra with retention times were found')
+  const previousPage = () => {
+    const previous = cursorHistory[cursorHistory.length - 1]
+    setCursorHistory(history => history.slice(0, -1))
+    setCursor(previous)
   }
 
-  const toggleBrowse = async () => {
-    const opening = !browseOpen
-    setBrowseOpen(opening)
-    if (opening && !catalog) await fetchCatalog({ offset: Math.max(0, currentIndex - Math.floor(catalogPageSize / 2)) })
+  const updateSort = (next: SortField) => {
+    if (sort === next) setDirection(value => value === 'asc' ? 'desc' : 'asc')
+    else {
+      setSort(next)
+      setDirection('asc')
+    }
+    setCursor(undefined)
+    setCursorHistory([])
   }
 
   const retentionMinutes = spectrum?.metadata.rt === null || spectrum?.metadata.rt === undefined ? null : spectrum.metadata.rt / 60
+  const activeFilterCount = countFilters(filters, selectedArtifact, preferredMsLevel)
+  const rebuildCatalog = async () => {
+    setCatalogAction('queuing')
+    try {
+      await api.extractArtifact(selectedArtifact.id, true)
+      setCatalogAction('queued')
+    } catch (reason) {
+      setCatalogAction('idle')
+      setError(reason instanceof Error ? reason.message : 'Could not queue catalog extraction')
+    }
+  }
 
   return <div className="spectrum-explorer">
     <div className="spectrum-toolbar">
       <label><span>Artifact</span><select aria-label="Spectrum artifact" value={selectedArtifact.id} onChange={event => selectArtifact(event.target.value)}>{candidates.map(artifact => <option value={artifact.id} key={artifact.id}>{artifact.name} ({artifact.format})</option>)}</select></label>
-      <fieldset><legend>MS level</legend><button aria-pressed={msLevel === 1} className={msLevel === 1 ? 'active' : ''} disabled={ms1Unavailable} type="button" onClick={() => selectLevel(1)}>MS1</button><button aria-pressed={msLevel === 2} className={msLevel === 2 ? 'active' : ''} disabled={ms2Unavailable} type="button" onClick={() => selectLevel(2)}>MS2</button></fieldset>
-      <label className="spectrum-find"><span>Find spectrum</span><div><select aria-label="Spectrum search field" value={findMode} onChange={event => setFindMode(event.target.value as FindMode)}><option value="rt">Retention time</option><option value="scan">Scan number</option><option value="precursor">Precursor m/z</option><option value="native">Native ID</option></select><input aria-label="Spectrum search" value={findValue} placeholder={findPlaceholder(findMode)} onChange={event => setFindValue(event.target.value)} onKeyDown={event => {
-        if (event.key === 'Enter') void findSpectrum()
-      }} /><button type="button" aria-label="Find spectrum" disabled={catalogLoading} onClick={() => void findSpectrum()}>{catalogLoading ? <LoaderCircle className="spin" size={14} /> : <Search size={14} />}</button></div></label>
-      <button className="spectrum-browse" type="button" aria-expanded={browseOpen} disabled={catalogLoading} onClick={() => void toggleBrowse()}><ListFilter size={14} />{browseOpen ? 'Hide list' : 'Browse spectra'}</button>
+      <div className="spectrum-catalog-state"><span>Access</span><strong data-mode={catalogMode}>{catalogMode === 'persistent' ? 'Indexed catalog' : 'Compatibility mode'}</strong></div>
+      <button className="spectrum-browse" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(value => !value)}><Filter size={14} />Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}<ChevronDown size={13} /></button>
       <button className="spectrum-reload" type="button" aria-label="Reload spectrum" disabled={loading} onClick={() => {
         setRefresh(value => value + 1)
+        setCursor(value => value)
       }}>{loading ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}</button>
     </div>
     {error && <div className="spectrum-error" role="alert">{error}</div>}
-    <SpectrumChromatogram points={chromatogram} retentionMinutes={retentionMinutes} loading={catalogLoading} onSelect={minutes => void selectRetentionTime(minutes)} />
+    <SpectrumFilters filters={filters} advancedOpen={advancedOpen} ms1Unavailable={selectedArtifact.format === 'MGF' || selectedArtifact.format === 'MS2' || selectedArtifact.format === 'MSP' || spectrumCounts?.['1'] === 0} ms2Unavailable={spectrumCounts?.['2'] === 0} onChange={changeFilters} onClear={() => changeFilters(initialFilters(selectedArtifact, preferredMsLevel))} />
+    {catalogMode === 'fallback' && <div className="spectrum-catalog-notice"><span>{catalogAction === 'queued' ? 'Catalog extraction is queued. Refresh after the extraction job completes.' : 'This artifact has no persistent catalog yet. Basic browsing is available, but advanced filters require re-extraction.'}</span><button type="button" disabled={catalogAction !== 'idle'} onClick={() => void rebuildCatalog()}>{catalogAction === 'queuing' ? 'Queuing' : catalogAction === 'queued' ? 'Queued' : 'Build catalog'}</button></div>}
+    <SpectrumTable page={catalog} loading={catalogLoading} selected={summary} sort={sort} direction={direction} onSort={updateSort} onSelect={chooseSummary} onPreviousPage={previousPage} onNextPage={nextPage} canPrevious={cursorHistory.length > 0} />
     <div className="spectrum-selection-control">
-      <button type="button" aria-label="Previous spectrum" disabled={currentIndex === 0 || loading} onClick={() => void stepSpectrum(-1)}><ChevronLeft size={15} /></button>
-      <div><strong>{spectrumSelectionTitle(spectrum, currentIndex)}</strong><span>{spectrumSelectionSubtitle(spectrum)}</span></div>
-      <button type="button" aria-label="Next spectrum" onClick={() => void stepSpectrum(1)} disabled={loading || currentIndex >= maxIndex}><ChevronRight size={15} /></button>
+      <button type="button" aria-label="Previous spectrum" disabled={selectedRowIndex <= 0 || loading} onClick={() => stepSpectrum(-1)}><ChevronLeft size={15} /></button>
+      <div><strong>{spectrumSelectionTitle(spectrum, summary?.index ?? selection.index ?? 0)}</strong><span>{spectrumSelectionSubtitle(spectrum)}</span></div>
+      <button type="button" aria-label="Next spectrum" onClick={() => stepSpectrum(1)} disabled={loading || !catalog || selectedRowIndex >= catalog.items.length - 1}><ChevronRight size={15} /></button>
     </div>
-    {browseOpen && <SpectrumBrowser page={catalog} loading={catalogLoading} selectedIndex={currentIndex} onSelect={chooseSummary} onPage={offset => void fetchCatalog({ offset })} />}
+    <SpectrumChromatogram points={chromatogram} retentionMinutes={retentionMinutes} loading={catalogLoading} onSelect={minutes => changeFilters({ rtMin: Math.max(0, minutes - 0.05).toFixed(2), rtMax: (minutes + 0.05).toFixed(2) })} />
     {loading && !spectrum ? <div className="spectrum-loading"><LoaderCircle className="spin" size={18} /> Reading {selectedArtifact.format} spectrum</div> : null}
     {spectrum ? <><SpectrumPlot spectrum={spectrum} /><SpectrumFacts spectrum={spectrum} /></> : null}
   </div>
+}
+
+function SpectrumFilters({ filters, advancedOpen, ms1Unavailable, ms2Unavailable, onChange, onClear }: { filters: FilterDraft, advancedOpen: boolean, ms1Unavailable: boolean, ms2Unavailable: boolean, onChange: (value: Partial<FilterDraft>) => void, onClear: () => void }) {
+  return <div className={`spectrum-filters ${advancedOpen ? 'advanced' : ''}`}>
+    <div className="spectrum-filter-level"><span>MS level</span><label><input type="checkbox" checked={filters.ms1} disabled={ms1Unavailable || (filters.ms1 && !filters.ms2)} onChange={event => onChange({ ms1: event.target.checked })} /> MS1</label><label><input type="checkbox" checked={filters.ms2} disabled={ms2Unavailable || (filters.ms2 && !filters.ms1)} onChange={event => onChange({ ms2: event.target.checked })} /> MS2</label></div>
+    <RangeFilter label="Scan" min={filters.scanMin} max={filters.scanMax} onChange={(min, max) => onChange({ scanMin: min, scanMax: max })} />
+    <RangeFilter label="RT (min)" min={filters.rtMin} max={filters.rtMax} step="0.01" onChange={(min, max) => onChange({ rtMin: min, rtMax: max })} />
+    <RangeFilter label="Precursor m/z" min={filters.precursorMin} max={filters.precursorMax} step="0.0001" onChange={(min, max) => onChange({ precursorMin: min, precursorMax: max })} />
+    <label><span>Charge</span><input aria-label="Precursor charge" value={filters.charge} placeholder="2, 3" onChange={event => onChange({ charge: event.target.value })} /></label>
+    <RangeFilter label="Peaks" min={filters.peaksMin} max={filters.peaksMax} onChange={(min, max) => onChange({ peaksMin: min, peaksMax: max })} />
+    <label><span>Min total intensity</span><input aria-label="Minimum total intensity" type="number" min="0" value={filters.ticMin} onChange={event => onChange({ ticMin: event.target.value })} /></label>
+    {advancedOpen && <>
+      <RangeFilter label="Neutral mass" min={filters.neutralMassMin} max={filters.neutralMassMax} step="0.0001" onChange={(min, max) => onChange({ neutralMassMin: min, neutralMassMax: max })} />
+      <RangeFilter label="Base peak m/z" min={filters.basePeakMin} max={filters.basePeakMax} step="0.0001" onChange={(min, max) => onChange({ basePeakMin: min, basePeakMax: max })} />
+      <label><span>Native ID contains</span><input aria-label="Native ID contains" value={filters.nativeId} onChange={event => onChange({ nativeId: event.target.value })} /></label>
+      <label><span>Polarity</span><select aria-label="Polarity" value={filters.polarity} onChange={event => onChange({ polarity: event.target.value })}><option value="">Any</option><option value="positive">Positive</option><option value="negative">Negative</option></select></label>
+      <label><span>Representation</span><select aria-label="Representation" value={filters.representation} onChange={event => onChange({ representation: event.target.value })}><option value="">Any</option><option value="centroid">Centroid</option><option value="profile">Profile</option></select></label>
+    </>}
+    <button className="spectrum-clear-filters" type="button" onClick={onClear}><X size={13} />Clear</button>
+  </div>
+}
+
+function RangeFilter({ label, min, max, step = '1', onChange }: { label: string, min: string, max: string, step?: string, onChange: (min: string, max: string) => void }) {
+  return <label className="spectrum-range-filter"><span>{label}</span><div><input aria-label={`${label} minimum`} type="number" min="0" step={step} placeholder="Min" value={min} onChange={event => onChange(event.target.value, max)} /><input aria-label={`${label} maximum`} type="number" min="0" step={step} placeholder="Max" value={max} onChange={event => onChange(min, event.target.value)} /></div></label>
+}
+
+function SpectrumTable({ page, loading, selected, sort, direction, onSort, onSelect, onPreviousPage, onNextPage, canPrevious }: { page: SpectrumCatalogPage | null, loading: boolean, selected: SpectrumSummary | null, sort: SortField, direction: 'asc' | 'desc', onSort: (field: SortField) => void, onSelect: (item: SpectrumSummary) => void, onPreviousPage: () => void, onNextPage: () => void, canPrevious: boolean }) {
+  if (loading && !page) return <div className="spectrum-browser-loading"><LoaderCircle className="spin" size={16} /> Querying spectrum catalog</div>
+  return <div className="spectrum-browser spectrum-table-primary">
+    <div className="spectrum-table-scroll"><table><thead><tr>
+      <SortableHeader label="RT" field="retention_time_seconds" sort={sort} direction={direction} onSort={onSort} />
+      <SortableHeader label="Scan" field="scan_number" sort={sort} direction={direction} onSort={onSort} />
+      <SortableHeader label="Level" field="ms_level" sort={sort} direction={direction} onSort={onSort} />
+      <SortableHeader label="Precursor m/z" field="precursor_mz" sort={sort} direction={direction} onSort={onSort} />
+      <th>Charge</th><SortableHeader label="Peaks" field="peak_count" sort={sort} direction={direction} onSort={onSort} />
+      <SortableHeader label="Total intensity" field="total_ion_current" sort={sort} direction={direction} onSort={onSort} />
+      <SortableHeader label="Base peak m/z" field="base_peak_mz" sort={sort} direction={direction} onSort={onSort} />
+    </tr></thead><tbody>{page?.items.map((item, itemIndex) => <tr className={sameSummary(item, selected) ? 'selected' : ''} key={item.id ?? `${item.ms_level}:${item.index}`} onClick={() => onSelect(item)} onKeyDown={event => {
+      if (event.key === 'Enter' || event.key === ' ') onSelect(item)
+      if (event.key === 'ArrowDown' && page.items[itemIndex + 1]) {
+        event.preventDefault()
+        onSelect(page.items[itemIndex + 1])
+        const nextRow = event.currentTarget.nextElementSibling as HTMLElement | null
+        nextRow?.focus()
+      }
+      if (event.key === 'ArrowUp' && page.items[itemIndex - 1]) {
+        event.preventDefault()
+        onSelect(page.items[itemIndex - 1])
+        const previousRow = event.currentTarget.previousElementSibling as HTMLElement | null
+        previousRow?.focus()
+      }
+    }} role="button" tabIndex={0}><td>{item.rt === null ? 'Unknown' : `${(item.rt / 60).toFixed(2)} min`}</td><td>{item.scan_number ?? 'Unknown'}</td><td>MS{item.ms_level}</td><td>{formatNumber(item.precursor_mz, 4)}</td><td>{item.precursor_charge ? formatCharge(item.precursor_charge, item.polarity) : 'None'}</td><td>{item.peak_count?.toLocaleString() ?? 'Unknown'}</td><td>{formatCompact(item.total_ion_current)}</td><td>{formatNumber(item.base_peak_mz, 4)}</td></tr>)}</tbody></table></div>
+    {!loading && !page?.items.length && <div className="spectrum-browser-loading">No spectra match these filters.</div>}
+    <div className="spectrum-browser-footer"><span>{page ? `${page.total.toLocaleString()} matching spectra` : 'Waiting for catalog'}{loading ? ' · Updating' : ''}</span><div><button type="button" onClick={onPreviousPage} disabled={loading || !canPrevious}>Previous 50</button><button type="button" onClick={onNextPage} disabled={loading || !page?.next_cursor}>Next 50</button></div></div>
+  </div>
+}
+
+function SortableHeader({ label, field, sort, direction, onSort }: { label: string, field: SortField, sort: SortField, direction: 'asc' | 'desc', onSort: (field: SortField) => void }) {
+  return <th><button type="button" onClick={() => onSort(field)}>{label}{sort === field ? direction === 'asc' ? ' ↑' : ' ↓' : ''}</button></th>
+}
+
+function selectFirstCatalogItem(page: SpectrumCatalogPage, setSummary: (value: SpectrumSummary | null) => void, setSelection: (value: SpectrumSelection) => void, setSpectrum: (value: SpxtacularSpectrum | null) => void) {
+  const first = page.items[0]
+  if (!first) {
+    setSummary(null)
+    setSpectrum(null)
+    return
+  }
+  setSummary(first)
+  setSelection(first.id ? { entryId: first.id } : first.native_id ? { nativeId: first.native_id } : first.scan_number !== null ? { scanNumber: first.scan_number } : { index: first.index })
 }
 
 function SpectrumChromatogram({ points, retentionMinutes, loading, onSelect }: { points: Array<{ time: number, intensity: number }>, retentionMinutes: number | null, loading: boolean, onSelect: (minutes: number) => void }) {
@@ -212,22 +327,59 @@ function SpectrumChromatogram({ points, retentionMinutes, loading, onSelect }: {
   </div>
 }
 
-function SpectrumBrowser({ page, loading, selectedIndex, onSelect, onPage }: { page: SpectrumCatalogPage | null, loading: boolean, selectedIndex: number, onSelect: (item: SpectrumSummary) => void, onPage: (offset: number) => void }) {
-  if (loading && !page) return <div className="spectrum-browser-loading"><LoaderCircle className="spin" size={16} /> Building the spectrum catalog</div>
-  if (!page?.items.length) return <div className="spectrum-browser-loading">No spectra match this selection.</div>
-  return <div className="spectrum-browser">
-    <table><thead><tr><th>RT</th><th>Scan</th><th>Level</th><th>Precursor</th><th>Peaks</th></tr></thead><tbody>{page.items.map(item => <tr className={item.index === selectedIndex ? 'selected' : ''} key={item.index} onClick={() => onSelect(item)} onKeyDown={event => {
-      if (event.key === 'Enter' || event.key === ' ') onSelect(item)
-    }} role="button" tabIndex={0}><td>{item.rt === null ? 'Unknown' : `${(item.rt / 60).toFixed(2)} min`}</td><td>{item.scan_number ?? 'Unknown'}</td><td>MS{item.ms_level}</td><td>{item.precursor_mz === null ? 'None' : `${item.precursor_mz.toFixed(4)}${item.precursor_charge ? ` (${formatCharge(item.precursor_charge)})` : ''}`}</td><td>{item.peak_count.toLocaleString()}</td></tr>)}</tbody></table>
-    <div className="spectrum-browser-footer"><span>{page.total.toLocaleString()} MS{page.items[0].ms_level} spectra</span><div><button type="button" onClick={() => onPage(Math.max(0, page.offset - page.limit))} disabled={loading || page.offset === 0}>Previous</button><button type="button" onClick={() => onPage(page.offset + page.limit)} disabled={loading || page.offset + page.items.length >= page.total}>Next</button></div></div>
-  </div>
+function initialFilters(artifact?: Artifact, preferredMsLevel?: 1 | 2): FilterDraft {
+  const level = defaultMsLevel(artifact, preferredMsLevel)
+  return { ms1: level === 1, ms2: level === 2, scanMin: '', scanMax: '', rtMin: '', rtMax: '', precursorMin: '', precursorMax: '', charge: '', peaksMin: '', peaksMax: '', ticMin: '', neutralMassMin: '', neutralMassMax: '', basePeakMin: '', basePeakMax: '', nativeId: '', polarity: '', representation: '' }
 }
 
-function findPlaceholder(mode: FindMode): string {
-  if (mode === 'rt') return '31.42 min'
-  if (mode === 'scan') return '1001'
-  if (mode === 'precursor') return '622.31'
-  return 'controllerType=0 scan=1001'
+function buildSpectrumQuery(filters: FilterDraft, sort: SortField, direction: 'asc' | 'desc', cursor?: string): SpectrumQueryRequest {
+  return {
+    msLevels: [filters.ms1 ? 1 : null, filters.ms2 ? 2 : null].filter((value): value is number => value !== null),
+    scanNumberMin: numeric(filters.scanMin), scanNumberMax: numeric(filters.scanMax),
+    retentionTimeMin: seconds(filters.rtMin), retentionTimeMax: seconds(filters.rtMax),
+    precursorMzMin: numeric(filters.precursorMin), precursorMzMax: numeric(filters.precursorMax),
+    neutralMassMin: numeric(filters.neutralMassMin), neutralMassMax: numeric(filters.neutralMassMax),
+    charges: filters.charge.split(/[ ,]+/).flatMap(value => value && Number.isInteger(Number(value)) ? [Number(value)] : []),
+    peakCountMin: numeric(filters.peaksMin), peakCountMax: numeric(filters.peaksMax),
+    totalIonCurrentMin: numeric(filters.ticMin),
+    basePeakMzMin: numeric(filters.basePeakMin), basePeakMzMax: numeric(filters.basePeakMax),
+    nativeId: filters.nativeId.trim() || undefined,
+    polarities: filters.polarity ? [filters.polarity] : [],
+    representations: filters.representation ? [filters.representation] : [],
+    sort, direction, cursor, limit: catalogPageSize
+  }
+}
+
+function legacyQueryAdapter(loader: SpectrumCatalogLoader): SpectrumQueryLoader {
+  return (artifactId, query) => loader(artifactId, { msLevel: query.msLevels?.[0] === 2 ? 2 : 1, limit: query.limit })
+}
+
+function numeric(value: string): number | undefined {
+  const number = Number(value)
+  return value.trim() && Number.isFinite(number) && number >= 0 ? number : undefined
+}
+
+function seconds(minutes: string): number | undefined {
+  const value = numeric(minutes)
+  return value === undefined ? undefined : value * 60
+}
+
+function countFilters(filters: FilterDraft, artifact?: Artifact, preferredMsLevel?: 1 | 2): number {
+  const defaults = initialFilters(artifact, preferredMsLevel)
+  return Object.keys(filters).filter(key => filters[key as keyof FilterDraft] !== defaults[key as keyof FilterDraft]).length
+}
+
+function sameSummary(left: SpectrumSummary, right: SpectrumSummary | null): boolean {
+  if (!right) return false
+  return left.id && right.id ? left.id === right.id : left.ms_level === right.ms_level && left.index === right.index
+}
+
+function formatNumber(value: number | null | undefined, digits: number): string {
+  return value === null || value === undefined ? 'None' : value.toFixed(digits)
+}
+
+function formatCompact(value: number | null | undefined): string {
+  return value === null || value === undefined ? 'Unknown' : Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 2 }).format(value)
 }
 
 function spectrumSelectionTitle(spectrum: SpxtacularSpectrum | null, index: number): string {

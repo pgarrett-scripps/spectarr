@@ -96,25 +96,68 @@ export interface SpxtacularSpectrum {
 }
 
 export interface SpectrumSummary {
+  id?: string
   index: number
+  ordinal?: number
   native_id: string | null
   scan_number: number | null
   ms_level: number
   rt: number | null
   precursor_mz: number | null
   precursor_charge: number | null
-  peak_count: number
+  neutral_mass?: number | null
+  isolation_lower_mz?: number | null
+  isolation_upper_mz?: number | null
+  peak_count: number | null
   total_ion_current: number | null
+  base_peak_mz?: number | null
+  base_peak_intensity?: number | null
+  mz_min?: number | null
+  mz_max?: number | null
+  polarity?: string | null
+  representation?: string | null
+  collision_energy?: number | null
+  activation_type?: string | null
+  ion_mobility?: number | null
+  ion_mobility_unit?: string | null
 }
 
 export interface SpectrumCatalogPage {
   schema: 'spectarr.spectrum-catalog'
-  schema_version: 1
+  schema_version: 1 | 2
+  strategy?: 'persistent' | 'fallback'
   total: number
-  offset: number
+  offset?: number
   limit: number
-  match_index: number | null
+  match_index?: number | null
+  next_cursor?: string | null
   items: SpectrumSummary[]
+}
+
+export interface SpectrumQueryRequest {
+  msLevels?: number[]
+  scanNumberMin?: number
+  scanNumberMax?: number
+  retentionTimeMin?: number
+  retentionTimeMax?: number
+  precursorMzMin?: number
+  precursorMzMax?: number
+  neutralMassMin?: number
+  neutralMassMax?: number
+  charges?: number[]
+  peakCountMin?: number
+  peakCountMax?: number
+  totalIonCurrentMin?: number
+  totalIonCurrentMax?: number
+  basePeakMzMin?: number
+  basePeakMzMax?: number
+  nativeId?: string
+  polarities?: string[]
+  representations?: string[]
+  sort?: 'ordinal' | 'scan_number' | 'retention_time_seconds' | 'ms_level' | 'precursor_mz' | 'neutral_mass' | 'peak_count' | 'total_ion_current' | 'base_peak_mz'
+  direction?: 'asc' | 'desc'
+  cursor?: string
+  limit?: number
 }
 
 export interface ExtractionSummary {

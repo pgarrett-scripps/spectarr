@@ -99,13 +99,13 @@ Instrument agents default to a backend-managed inbox. Spectarr creates one intak
 
 ## Automatic metadata and QC
 
-Every ready source artifact automatically queues a versioned metadata extraction job. Built-in bounded-memory parsers support mzML, gzipped mzML, mzXML, MGF, and MS2. Results include spectrum counts by MS level, polarity, centroid or profile mode, retention-time and m/z ranges, precursors, charge and collision-energy summaries, peak and intensity statistics, TIC and BPC previews, ion mobility, DIA windows, and parser warnings.
+Every ready source artifact automatically queues a versioned metadata extraction job. Built-in bounded-memory parsers support mzML, gzipped mzML, mzXML, MGF, and MS2. Results include spectrum counts by MS level, polarity, centroid or profile mode, retention-time and m/z ranges, precursors, charge and collision-energy summaries, peak and intensity statistics, TIC and BPC previews, ion mobility, DIA windows, and parser warnings. The same streaming pass publishes a persistent spectrum catalog to PostgreSQL in bounded batches. Catalog activation is atomic, so an interrupted extraction never replaces the last complete catalog.
 
 OpenMassSpec is enabled by default for direct metadata extraction from supported vendor acquisitions. Set `SPECTARR_INSTALL_OPENMASSSPEC=false` before building if you want the smaller extractor image. Built-in parsers handle open formats, and MSConvert remains the conversion compatibility baseline when a vendor reader cannot parse an acquisition.
 
 See [extractor documentation](services/extractor/README.md).
 
-The run detail dashboard includes an inline spectrum browser. The chromatogram selects the nearest spectrum by retention time, direct search supports retention time, scan number, precursor m/z, and native ID, and an expandable table provides paged browsing. The authenticated API proxies peak and catalog requests to a private Spxtacular reader container with read-only storage access. After the first spectrum is shown, a peak-free catalog warms in the background and remains cached in memory, while individual spectra continue to use the versioned `spxtacular.spectrum` JSON contract. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
+The run detail dashboard includes a table-led spectrum browser designed for runs with hundreds of thousands of spectra. Indexed filters cover scan, retention time, MS level, precursor m/z, neutral mass, charge, peak count, total intensity, base peak m/z, native ID, polarity, and representation. Sortable results use cursor pagination in pages of 50 rows. Selecting a row fetches only that spectrum's peak arrays through the private Spxtacular reader. Existing artifacts without a persistent catalog retain basic compatibility browsing and can queue a catalog build from the run page. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
 
 ## Automatic instrument uploads
 

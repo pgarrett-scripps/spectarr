@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from ..models import ExtractionResult, SpectrumObservation, SummaryBuilder
 from .base import ProviderError, normalized_format
@@ -16,8 +17,13 @@ class Ms2Provider:
     def supports(self, path: Path, declared_format: str | None = None) -> bool:
         return normalized_format(path, declared_format) == "MS2"
 
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult:
-        builder = SummaryBuilder()
+    def extract(
+        self,
+        path: Path,
+        declared_format: str | None = None,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+    ) -> ExtractionResult:
+        builder = SummaryBuilder(on_spectrum=on_spectrum)
         headers: dict[str, str] = {}
         current: dict[str, object] | None = None
         malformed = 0
@@ -52,7 +58,9 @@ class Ms2Provider:
                             continue
                         current["peak_count"] = int(current["peak_count"]) + 1
                         current["tic"] = float(current["tic"]) + intensity
-                        current["bpc"] = intensity if current["bpc"] is None else max(float(current["bpc"]), intensity)
+                        if current["bpc"] is None or intensity > float(current["bpc"]):
+                            current["bpc"] = intensity
+                            current["base_peak_mz"] = mz_value
                         current["mz_min"] = (
                             mz_value if current["mz_min"] is None else min(float(current["mz_min"]), mz_value)
                         )
@@ -71,10 +79,12 @@ class Ms2Provider:
     @staticmethod
     def _new_spectrum(parts: list[str]) -> dict[str, object]:
         return {
+            "scan_number": _int(parts[1]),
             "precursor_mz": _float(parts[3]),
             "peak_count": 0,
             "tic": 0.0,
             "bpc": None,
+            "base_peak_mz": None,
             "mz_min": None,
             "mz_max": None,
         }
@@ -83,6 +93,8 @@ class Ms2Provider:
     def _observation(values: dict[str, object]) -> SpectrumObservation:
         rt = _float(values.get("RetTime") or values.get("RTime") or values.get("RetentionTime"))
         return SpectrumObservation(
+            native_id=f"scan={values['scan_number']}" if values.get("scan_number") is not None else None,
+            scan_number=int(values["scan_number"]) if values.get("scan_number") is not None else None,
             ms_level=2,
             retention_time_seconds=rt,
             representation="centroid",
@@ -91,6 +103,7 @@ class Ms2Provider:
             mz_max=_float(values.get("mz_max")),
             tic=_float(values.get("tic")),
             bpc=_float(values.get("bpc")),
+            base_peak_mz=_float(values.get("base_peak_mz")),
             precursor_mz=_float(values.get("precursor_mz")),
             precursor_charge=int(values["charge"]) if "charge" in values else None,
         )
@@ -99,5 +112,12 @@ class Ms2Provider:
 def _float(value: object) -> float | None:
     try:
         return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _int(value: object) -> int | None:
+    try:
+        return int(value)
     except (TypeError, ValueError):
         return None

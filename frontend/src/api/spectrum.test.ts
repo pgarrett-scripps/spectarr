@@ -54,4 +54,42 @@ describe('spectrum API', () => {
       expect.objectContaining({ headers: expect.objectContaining({ Accept: 'application/json' }) })
     )
   })
+
+  it('posts an indexed spectrum query and reads a catalog row', async () => {
+    const page = {
+      schema: 'spectarr.spectrum-catalog',
+      schema_version: 2,
+      strategy: 'persistent',
+      total: 1,
+      limit: 50,
+      next_cursor: null,
+      items: []
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(page), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ schema: 'spxtacular.spectrum', schema_version: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.querySpectra('artifact one', {
+      msLevels: [2],
+      retentionTimeMin: 90,
+      precursorMzMin: 500,
+      sort: 'precursor_mz',
+      direction: 'desc'
+    })
+    await api.catalogSpectrum('artifact one', 'entry/7')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/artifacts/artifact%20one/spectra/query')
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual(expect.objectContaining({
+      ms_levels: [2],
+      retention_time_min: 90,
+      precursor_mz_min: 500,
+      sort: 'precursor_mz',
+      direction: 'desc',
+      limit: 50
+    }))
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/artifacts/artifact%20one/spectra/entry%2F7')
+  })
 })

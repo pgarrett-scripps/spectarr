@@ -1,4 +1,4 @@
-import type { ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpectrumCatalogPage, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
+import type { ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpectrumCatalogPage, SpectrumQueryRequest, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const TOKEN_KEY = 'spectarr_access_token'
@@ -924,6 +924,43 @@ export const api = {
     if (selection.precursorMz !== undefined) query.set('precursor_mz', String(selection.precursorMz))
     return request(`/artifacts/${encodeURIComponent(artifactId)}/spectra?${query.toString()}`)
   },
+  querySpectra: async (artifactId: string, query: SpectrumQueryRequest): Promise<SpectrumCatalogPage> => request(
+    `/artifacts/${encodeURIComponent(artifactId)}/spectra/query`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        ms_levels: query.msLevels ?? [],
+        scan_number_min: query.scanNumberMin,
+        scan_number_max: query.scanNumberMax,
+        retention_time_min: query.retentionTimeMin,
+        retention_time_max: query.retentionTimeMax,
+        precursor_mz_min: query.precursorMzMin,
+        precursor_mz_max: query.precursorMzMax,
+        neutral_mass_min: query.neutralMassMin,
+        neutral_mass_max: query.neutralMassMax,
+        charges: query.charges ?? [],
+        peak_count_min: query.peakCountMin,
+        peak_count_max: query.peakCountMax,
+        total_ion_current_min: query.totalIonCurrentMin,
+        total_ion_current_max: query.totalIonCurrentMax,
+        base_peak_mz_min: query.basePeakMzMin,
+        base_peak_mz_max: query.basePeakMzMax,
+        native_id: query.nativeId,
+        polarities: query.polarities ?? [],
+        representations: query.representations ?? [],
+        sort: query.sort ?? 'retention_time_seconds',
+        direction: query.direction ?? 'asc',
+        cursor: query.cursor,
+        limit: query.limit ?? 50
+      })
+    }
+  ),
+  catalogSpectrum: (artifactId: string, entryId: string): Promise<SpxtacularSpectrum> => request(
+    `/artifacts/${encodeURIComponent(artifactId)}/spectra/${encodeURIComponent(entryId)}`
+  ),
+  spectrumCatalogStatus: (artifactId: string): Promise<{ status: 'ready' | 'building' | 'unavailable', spectrum_count: number }> => request(
+    `/artifacts/${encodeURIComponent(artifactId)}/spectrum-catalog`
+  ),
   generateArtifact: async (runId: string, format: ConversionFormat, inputArtifactId?: string, recipeId?: string) => normalizeJob(await request(`/runs/${encodeURIComponent(runId)}/derivatives`, {
     method: 'POST',
     body: JSON.stringify({ format, input_artifact_id: inputArtifactId, recipe_id: recipeId })

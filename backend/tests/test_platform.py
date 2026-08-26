@@ -856,7 +856,7 @@ def test_alembic_migrates_an_empty_database(tmp_path: Path) -> None:
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
     command.upgrade(config, "head")
     tables = set(inspect(create_engine(f"sqlite:///{database}")).get_table_names())
-    assert {"alembic_version", "users", "upload_sessions", "extraction_results", "event_outbox"} <= tables
+    assert {"alembic_version", "users", "upload_sessions", "extraction_results", "spectrum_catalogs", "spectrum_catalog_entries", "event_outbox"} <= tables
 
 
 def test_migration_root_can_be_configured_for_an_installed_runtime(

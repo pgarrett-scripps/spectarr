@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from ..models import ExtractionResult, SpectrumObservation, SummaryBuilder
 from .base import ProviderError, normalized_format
@@ -16,8 +17,13 @@ class MgfProvider:
     def supports(self, path: Path, declared_format: str | None = None) -> bool:
         return normalized_format(path, declared_format) == "MGF"
 
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult:
-        builder = SummaryBuilder()
+    def extract(
+        self,
+        path: Path,
+        declared_format: str | None = None,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+    ) -> ExtractionResult:
+        builder = SummaryBuilder(on_spectrum=on_spectrum)
         metadata: dict[str, str] = {}
         current: dict[str, object] | None = None
         malformed_lines = 0
@@ -31,7 +37,7 @@ class MgfProvider:
                     if upper == "BEGIN IONS":
                         if current is not None:
                             malformed_lines += 1
-                        current = {"peak_count": 0, "tic": 0.0, "bpc": None, "mz_min": None, "mz_max": None}
+                        current = {"peak_count": 0, "tic": 0.0, "bpc": None, "base_peak_mz": None, "mz_min": None, "mz_max": None}
                         continue
                     if upper == "END IONS":
                         if current is not None:
@@ -60,7 +66,9 @@ class MgfProvider:
                         continue
                     current["peak_count"] = int(current["peak_count"]) + 1
                     current["tic"] = float(current["tic"]) + intensity
-                    current["bpc"] = intensity if current["bpc"] is None else max(float(current["bpc"]), intensity)
+                    if current["bpc"] is None or intensity > float(current["bpc"]):
+                        current["bpc"] = intensity
+                        current["base_peak_mz"] = mz_value
                     current["mz_min"] = (
                         mz_value if current["mz_min"] is None else min(float(current["mz_min"]), mz_value)
                     )
@@ -83,6 +91,8 @@ class MgfProvider:
         charge = _charge(values.get("CHARGE"))
         rt = _first_float(values.get("RTINSECONDS"))
         return SpectrumObservation(
+            native_id=str(values.get("TITLE")) if values.get("TITLE") is not None else None,
+            scan_number=_scan_number(values.get("SCANS") or values.get("TITLE")),
             ms_level=2,
             retention_time_seconds=rt,
             representation="centroid",
@@ -91,6 +101,7 @@ class MgfProvider:
             mz_max=_optional_float(values.get("mz_max")),
             tic=_optional_float(values.get("tic")),
             bpc=_optional_float(values.get("bpc")),
+            base_peak_mz=_optional_float(values.get("base_peak_mz")),
             precursor_mz=precursor,
             precursor_charge=charge,
         )
@@ -117,3 +128,12 @@ def _charge(value: object) -> int | None:
         return int(token)
     except ValueError:
         return None
+
+
+def _scan_number(value: object) -> int | None:
+    if value is None:
+        return None
+    import re
+
+    match = re.search(r"(?:scan(?:s)?[=:\s]+)?(\d+)", str(value), re.IGNORECASE)
+    return int(match.group(1)) if match else None

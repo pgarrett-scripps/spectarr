@@ -6,7 +6,7 @@ import gzip
 import math
 import re
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Callable
 from xml.parsers import expat
 
 from ..models import ExtractionResult, SpectrumObservation, SummaryBuilder
@@ -24,6 +24,7 @@ MZML_VALUES = {
     "MS:1000527": "mz_max",
     "MS:1000285": "tic",
     "MS:1000505": "bpc",
+    "MS:1000504": "base_peak_mz",
     "MS:1000744": "precursor_mz",
     "MS:1000041": "precursor_charge",
     "MS:1000045": "collision_energy",
@@ -44,8 +45,13 @@ class MzmlProvider:
     def supports(self, path: Path, declared_format: str | None = None) -> bool:
         return normalized_format(path, declared_format) == "mzML"
 
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult:
-        builder = SummaryBuilder()
+    def extract(
+        self,
+        path: Path,
+        declared_format: str | None = None,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+    ) -> ExtractionResult:
+        builder = SummaryBuilder(on_spectrum=on_spectrum)
         handler = _MzmlHandler(builder)
         _parse_xml(path, handler.start, handler.end, None)
         summary, warnings = builder.finish()
@@ -78,7 +84,10 @@ class _MzmlHandler:
         elif element == "spectrumList":
             self.declared_spectrum_count = _integer(attrs.get("count"))
         elif element == "spectrum":
+            native_id = attrs.get("id")
             self.current = SpectrumObservation(
+                native_id=native_id,
+                scan_number=_scan_number(native_id),
                 peak_count=_integer(attrs.get("defaultArrayLength")),
                 dia=self.run_is_dia,
             )
@@ -105,6 +114,8 @@ class _MzmlHandler:
         field_name = MZML_VALUES.get(accession)
         if "ion mobility array" in lowered_name or "drift time array" in lowered_name:
             self.current.ion_mobility_present = True
+        if "activation" in lowered_name and "energy" not in lowered_name:
+            self.current.activation_type = attrs.get("name") or accession
         if field_name == "positive":
             self.current.polarity = "positive"
         elif field_name == "negative":
@@ -134,8 +145,13 @@ class MzxmlProvider:
     def supports(self, path: Path, declared_format: str | None = None) -> bool:
         return normalized_format(path, declared_format) == "mzXML"
 
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult:
-        builder = SummaryBuilder()
+    def extract(
+        self,
+        path: Path,
+        declared_format: str | None = None,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+    ) -> ExtractionResult:
+        builder = SummaryBuilder(on_spectrum=on_spectrum)
         handler = _MzxmlHandler(builder)
         _parse_xml(path, handler.start, handler.end, handler.text)
         summary, warnings = builder.finish()
@@ -159,8 +175,11 @@ class _MzxmlHandler:
         if element == "msRun":
             self.declared_spectrum_count = _integer(attrs.get("scanCount"))
         elif element == "scan":
+            scan_number = _integer(attrs.get("num"))
             self.scans.append(
                 SpectrumObservation(
+                    native_id=f"scan={scan_number}" if scan_number is not None else None,
+                    scan_number=scan_number,
                     ms_level=_integer(attrs.get("msLevel")) or 1,
                     retention_time_seconds=_duration_seconds(attrs.get("retentionTime")),
                     polarity={"+": "positive", "-": "negative"}.get(attrs.get("polarity", "")),
@@ -176,6 +195,7 @@ class _MzxmlHandler:
                     mz_max=_number(attrs.get("highMz")),
                     tic=_number(attrs.get("totIonCurrent")),
                     bpc=_number(attrs.get("basePeakIntensity")),
+                    base_peak_mz=_number(attrs.get("basePeakMz")),
                     collision_energy=_number(attrs.get("collisionEnergy")),
                 )
             )
@@ -265,3 +285,10 @@ def _duration_seconds(value: str | None) -> float | None:
     minutes = float(match.group(1) or 0)
     seconds = float(match.group(2) or 0)
     return minutes * 60.0 + seconds
+
+
+def _scan_number(value: str | None) -> int | None:
+    if not value:
+        return None
+    match = re.search(r"(?:scan|scanId|spectrum)=(\d+)", value, re.IGNORECASE)
+    return _integer(match.group(1)) if match else None

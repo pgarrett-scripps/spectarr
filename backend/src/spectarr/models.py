@@ -312,6 +312,9 @@ class Artifact(TimestampMixin, Base):
     extraction_results: Mapped[list[ExtractionResult]] = relationship(
         back_populates="artifact", cascade="all, delete-orphan"
     )
+    spectrum_catalogs: Mapped[list[SpectrumCatalog]] = relationship(
+        back_populates="artifact", cascade="all, delete-orphan"
+    )
 
 
 class Job(TimestampMixin, Base):
@@ -488,6 +491,72 @@ class ExtractionResult(TimestampMixin, Base):
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     artifact: Mapped[Artifact] = relationship(back_populates="extraction_results")
+
+
+class SpectrumCatalog(TimestampMixin, Base):
+    __tablename__ = "spectrum_catalogs"
+    __table_args__ = (
+        Index("ix_spectrum_catalog_artifact_status", "artifact_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    artifact_id: Mapped[str] = mapped_column(
+        ForeignKey("artifacts.id", ondelete="CASCADE"), index=True
+    )
+    schema_version: Mapped[int] = mapped_column(default=1, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="building", nullable=False)
+    extractor: Mapped[str] = mapped_column(String(255), nullable=False)
+    extractor_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    spectrum_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+
+    artifact: Mapped[Artifact] = relationship(back_populates="spectrum_catalogs")
+    entries: Mapped[list[SpectrumCatalogEntry]] = relationship(
+        back_populates="catalog", cascade="all, delete-orphan"
+    )
+
+
+class SpectrumCatalogEntry(Base):
+    __tablename__ = "spectrum_catalog_entries"
+    __table_args__ = (
+        UniqueConstraint("catalog_id", "ordinal", name="uq_spectrum_catalog_ordinal"),
+        Index("ix_spectrum_entry_level_rt", "catalog_id", "ms_level", "retention_time_seconds", "ordinal"),
+        Index("ix_spectrum_entry_scan", "catalog_id", "scan_number", "ordinal"),
+        Index("ix_spectrum_entry_native", "catalog_id", "native_id"),
+        Index("ix_spectrum_entry_precursor", "catalog_id", "ms_level", "precursor_mz", "ordinal"),
+        Index("ix_spectrum_entry_charge_precursor", "catalog_id", "precursor_charge", "precursor_mz", "ordinal"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    catalog_id: Mapped[str] = mapped_column(
+        ForeignKey("spectrum_catalogs.id", ondelete="CASCADE"), index=True
+    )
+    ordinal: Mapped[int] = mapped_column(nullable=False)
+    ms_level_index: Mapped[int] = mapped_column(nullable=False)
+    native_id: Mapped[str | None] = mapped_column(String(2048))
+    scan_number: Mapped[int | None] = mapped_column()
+    ms_level: Mapped[int] = mapped_column(nullable=False)
+    retention_time_seconds: Mapped[float | None] = mapped_column(Float)
+    precursor_mz: Mapped[float | None] = mapped_column(Float)
+    precursor_charge: Mapped[int | None] = mapped_column()
+    neutral_mass: Mapped[float | None] = mapped_column(Float)
+    isolation_lower_mz: Mapped[float | None] = mapped_column(Float)
+    isolation_upper_mz: Mapped[float | None] = mapped_column(Float)
+    peak_count: Mapped[int | None] = mapped_column()
+    total_ion_current: Mapped[float | None] = mapped_column(Float)
+    base_peak_mz: Mapped[float | None] = mapped_column(Float)
+    base_peak_intensity: Mapped[float | None] = mapped_column(Float)
+    mz_min: Mapped[float | None] = mapped_column(Float)
+    mz_max: Mapped[float | None] = mapped_column(Float)
+    polarity: Mapped[str | None] = mapped_column(String(32))
+    representation: Mapped[str | None] = mapped_column(String(32))
+    collision_energy: Mapped[float | None] = mapped_column(Float)
+    activation_type: Mapped[str | None] = mapped_column(String(100))
+    ion_mobility: Mapped[float | None] = mapped_column(Float)
+    ion_mobility_unit: Mapped[str | None] = mapped_column(String(100))
+
+    catalog: Mapped[SpectrumCatalog] = relationship(back_populates="entries")
 
 
 class EventOutbox(Base):

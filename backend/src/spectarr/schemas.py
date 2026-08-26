@@ -499,6 +499,99 @@ class ExtractionResultRead(ApiModel):
     updated_at: datetime
 
 
+class SpectrumCatalogCreate(BaseModel):
+    extractor: str = Field(min_length=1, max_length=255)
+    extractor_version: str = Field(min_length=1, max_length=100)
+    schema_version: int = Field(default=1, ge=1, le=100)
+
+
+class SpectrumCatalogEntryCreate(BaseModel):
+    ordinal: int = Field(ge=0)
+    ms_level_index: int = Field(ge=0)
+    native_id: str | None = Field(default=None, max_length=2048)
+    scan_number: int | None = Field(default=None, ge=0)
+    ms_level: int = Field(ge=1, le=100)
+    retention_time_seconds: float | None = Field(default=None, ge=0)
+    precursor_mz: float | None = Field(default=None, ge=0)
+    precursor_charge: int | None = Field(default=None, ge=-100, le=100)
+    neutral_mass: float | None = Field(default=None, ge=0)
+    isolation_lower_mz: float | None = Field(default=None, ge=0)
+    isolation_upper_mz: float | None = Field(default=None, ge=0)
+    peak_count: int | None = Field(default=None, ge=0)
+    total_ion_current: float | None = Field(default=None, ge=0)
+    base_peak_mz: float | None = Field(default=None, ge=0)
+    base_peak_intensity: float | None = Field(default=None, ge=0)
+    mz_min: float | None = Field(default=None, ge=0)
+    mz_max: float | None = Field(default=None, ge=0)
+    polarity: str | None = Field(default=None, max_length=32)
+    representation: str | None = Field(default=None, max_length=32)
+    collision_energy: float | None = None
+    activation_type: str | None = Field(default=None, max_length=100)
+    ion_mobility: float | None = None
+    ion_mobility_unit: str | None = Field(default=None, max_length=100)
+
+
+class SpectrumCatalogBatch(BaseModel):
+    entries: list[SpectrumCatalogEntryCreate] = Field(min_length=1, max_length=1000)
+
+
+class SpectrumCatalogComplete(BaseModel):
+    spectrum_count: int = Field(ge=0)
+
+
+class SpectrumQuery(BaseModel):
+    ms_levels: list[int] = Field(default_factory=list, max_length=20)
+    scan_number_min: int | None = Field(default=None, ge=0)
+    scan_number_max: int | None = Field(default=None, ge=0)
+    retention_time_min: float | None = Field(default=None, ge=0)
+    retention_time_max: float | None = Field(default=None, ge=0)
+    precursor_mz_min: float | None = Field(default=None, ge=0)
+    precursor_mz_max: float | None = Field(default=None, ge=0)
+    neutral_mass_min: float | None = Field(default=None, ge=0)
+    neutral_mass_max: float | None = Field(default=None, ge=0)
+    charges: list[int] = Field(default_factory=list, max_length=100)
+    peak_count_min: int | None = Field(default=None, ge=0)
+    peak_count_max: int | None = Field(default=None, ge=0)
+    total_ion_current_min: float | None = Field(default=None, ge=0)
+    total_ion_current_max: float | None = Field(default=None, ge=0)
+    base_peak_mz_min: float | None = Field(default=None, ge=0)
+    base_peak_mz_max: float | None = Field(default=None, ge=0)
+    native_id: str | None = Field(default=None, max_length=2048)
+    polarities: list[str] = Field(default_factory=list, max_length=10)
+    representations: list[str] = Field(default_factory=list, max_length=10)
+    sort: Literal[
+        "ordinal",
+        "scan_number",
+        "retention_time_seconds",
+        "ms_level",
+        "precursor_mz",
+        "neutral_mass",
+        "peak_count",
+        "total_ion_current",
+        "base_peak_mz",
+    ] = "retention_time_seconds"
+    direction: Literal["asc", "desc"] = "asc"
+    cursor: str | None = Field(default=None, max_length=4096)
+    limit: int = Field(default=50, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> "SpectrumQuery":
+        for prefix in (
+            "scan_number",
+            "retention_time",
+            "precursor_mz",
+            "neutral_mass",
+            "peak_count",
+            "total_ion_current",
+            "base_peak_mz",
+        ):
+            minimum = getattr(self, f"{prefix}_min")
+            maximum = getattr(self, f"{prefix}_max")
+            if minimum is not None and maximum is not None and minimum > maximum:
+                raise ValueError(f"{prefix}_min must not exceed {prefix}_max")
+        return self
+
+
 class ExtractRequest(BaseModel):
     extractor: str = "spectarr-extractor"
     schema_version: str = "1.0"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 
 SCHEMA_VERSION = "1.0"
@@ -15,6 +15,10 @@ SCHEMA_VERSION = "1.0"
 class SpectrumObservation:
     """Normalized metadata for one spectrum without retaining peak arrays."""
 
+    ordinal: int | None = None
+    ms_level_index: int | None = None
+    native_id: str | None = None
+    scan_number: int | None = None
     ms_level: int = 1
     retention_time_seconds: float | None = None
     polarity: str | None = None
@@ -24,9 +28,11 @@ class SpectrumObservation:
     mz_max: float | None = None
     tic: float | None = None
     bpc: float | None = None
+    base_peak_mz: float | None = None
     precursor_mz: float | None = None
     precursor_charge: int | None = None
     collision_energy: float | None = None
+    activation_type: str | None = None
     ion_mobility: float | None = None
     ion_mobility_min: float | None = None
     ion_mobility_max: float | None = None
@@ -116,7 +122,12 @@ class ExtractionResult:
 class SummaryBuilder:
     """Accumulate run metadata from a stream of normalized spectra."""
 
-    def __init__(self, preview_points: int = 1000, dia_window_limit: int = 1000) -> None:
+    def __init__(
+        self,
+        preview_points: int = 1000,
+        dia_window_limit: int = 1000,
+        on_spectrum: Callable[[SpectrumObservation], None] | None = None,
+    ) -> None:
         self.spectrum_count = 0
         self.ms_levels: Counter[int] = Counter()
         self.polarities: set[str] = set()
@@ -139,8 +150,11 @@ class SummaryBuilder:
         self.dia_detected = False
         self.dia_windows_truncated = False
         self.warnings: list[str] = []
+        self.on_spectrum = on_spectrum
 
     def add(self, spectrum: SpectrumObservation) -> None:
+        spectrum.ordinal = self.spectrum_count
+        spectrum.ms_level_index = self.ms_levels[spectrum.ms_level]
         self.spectrum_count += 1
         self.ms_levels[spectrum.ms_level] += 1
         if spectrum.polarity:
@@ -174,6 +188,8 @@ class SummaryBuilder:
                 self.dia_windows.add(window)
             elif window not in self.dia_windows:
                 self.dia_windows_truncated = True
+        if self.on_spectrum:
+            self.on_spectrum(spectrum)
 
     def finish(self) -> tuple[dict[str, Any], list[str]]:
         if self.spectrum_count == 0:

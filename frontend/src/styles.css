@@ -719,13 +719,17 @@ td:last-child { display: flex; align-items: center; gap: 1px }
 .purged { color: var(--amber) }
 .purged { font-size: 8px }
 
+@media (max-width: 1400px) {
+  .detail-layout { grid-template-columns: 1fr }
+  .detail-side { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px }
+  .detail-side .panel { min-width: 0 }
+}
+
 @media (max-width: 1160px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr) }
   .project-grid { grid-template-columns: repeat(2, 1fr) }
   .overview-grid, .lower-grid { grid-template-columns: 1fr }
-  .detail-layout { grid-template-columns: 1fr }
   .science-grid { grid-template-columns: repeat(2, 1fr) }.science-grid > div:nth-child(2n) { border-right: 0 }
-  .detail-side { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px }.detail-side .panel { min-width: 0 }
 }
 
 .import-actions { padding: 0 19px 19px; display: flex; justify-content: flex-end; gap: 9px }
@@ -753,7 +757,7 @@ td:last-child { display: flex; align-items: center; gap: 1px }
 }
 
 .spectrum-toolbar { display: grid }
-.spectrum-toolbar { grid-template-columns: minmax(180px, 1fr) auto minmax(290px, 1.4fr) auto auto }
+.spectrum-toolbar { grid-template-columns: minmax(220px, 1fr) auto auto auto }
 .spectrum-toolbar { align-items: end }
 .spectrum-toolbar select { width: 100% }
 .spectrum-find > div { display: grid }
@@ -893,4 +897,107 @@ td:last-child { display: flex; align-items: center; gap: 1px }
   .spectrum-chromatogram-heading { align-items: flex-start }
   .spectrum-chromatogram-heading { flex-direction: column }
   .spectrum-browser table { min-width: 520px }
+}
+
+.spectrum-catalog-state span { display: block }
+.spectrum-catalog-state span { margin-bottom: 5px }
+.spectrum-catalog-state span { color: #65788f }
+.spectrum-catalog-state span { font-size: 8px }
+.spectrum-catalog-state span { text-transform: uppercase }
+.spectrum-catalog-state strong { height: 31px }
+.spectrum-catalog-state strong { padding: 0 10px }
+.spectrum-catalog-state strong { display: flex }
+.spectrum-catalog-state strong { align-items: center }
+.spectrum-catalog-state strong { border: 1px solid #254d49 }
+.spectrum-catalog-state strong { border-radius: 5px }
+.spectrum-catalog-state strong { color: #75c3b8 }
+.spectrum-catalog-state strong { background: #102724 }
+.spectrum-catalog-state strong { font-size: 8px }
+.spectrum-catalog-state strong[data-mode="fallback"] { border-color: #594a2b }
+.spectrum-catalog-state strong[data-mode="fallback"] { color: #d6b46e }
+.spectrum-catalog-state strong[data-mode="fallback"] { background: #2a2417 }
+.spectrum-filters { padding: 11px 14px }
+.spectrum-filters { display: grid }
+.spectrum-filters { grid-template-columns: auto repeat(6, minmax(105px, 1fr)) auto }
+.spectrum-filters { align-items: end }
+.spectrum-filters { gap: 9px }
+.spectrum-filters { border-bottom: 1px solid var(--border-soft) }
+.spectrum-filters { background: #0a1726 }
+.spectrum-filters.advanced { grid-template-columns: repeat(6, minmax(120px, 1fr)) }
+.spectrum-filters > label > span, .spectrum-filter-level > span { min-height: 10px }
+.spectrum-filters > label > span, .spectrum-filter-level > span { margin-bottom: 5px }
+.spectrum-filters > label > span, .spectrum-filter-level > span { display: block }
+.spectrum-filters > label > span, .spectrum-filter-level > span { color: #65788f }
+.spectrum-filters > label > span, .spectrum-filter-level > span { font-size: 7px }
+.spectrum-filters > label > span, .spectrum-filter-level > span { text-transform: uppercase }
+.spectrum-filters input, .spectrum-filters select { width: 100% }
+.spectrum-filters input, .spectrum-filters select { height: 29px }
+.spectrum-filters input, .spectrum-filters select { padding: 0 7px }
+.spectrum-filters input, .spectrum-filters select { border: 1px solid var(--border) }
+.spectrum-filters input, .spectrum-filters select { border-radius: 4px }
+.spectrum-filters input, .spectrum-filters select { color: #b9c5d4 }
+.spectrum-filters input, .spectrum-filters select { background: #0d1b2d }
+.spectrum-filters input, .spectrum-filters select { font-size: 8px }
+.spectrum-range-filter > div { display: grid }
+.spectrum-range-filter > div { grid-template-columns: 1fr 1fr }
+.spectrum-range-filter > div { gap: 4px }
+.spectrum-filter-level { min-width: 102px }
+.spectrum-filter-level label { margin-right: 8px }
+.spectrum-filter-level label { color: #a4b0c0 }
+.spectrum-filter-level label { font-size: 8px }
+.spectrum-filter-level input { width: auto }
+.spectrum-filter-level input { height: auto }
+.spectrum-clear-filters { height: 29px }
+.spectrum-clear-filters { padding: 0 9px }
+.spectrum-clear-filters { display: flex }
+.spectrum-clear-filters { align-items: center }
+.spectrum-clear-filters { gap: 5px }
+.spectrum-clear-filters { border: 1px solid var(--border) }
+.spectrum-clear-filters { border-radius: 4px }
+.spectrum-clear-filters { color: #8798ad }
+.spectrum-clear-filters { background: #0d1b2d }
+.spectrum-clear-filters { font-size: 8px }
+.spectrum-catalog-notice { padding: 8px 14px }
+.spectrum-catalog-notice { border-bottom: 1px solid #594a2b }
+.spectrum-catalog-notice { color: #c8a867 }
+.spectrum-catalog-notice { background: #211d14 }
+.spectrum-catalog-notice { font-size: 8px }
+.spectrum-catalog-notice { display: flex }
+.spectrum-catalog-notice { align-items: center }
+.spectrum-catalog-notice { justify-content: space-between }
+.spectrum-catalog-notice { gap: 12px }
+.spectrum-catalog-notice button { padding: 5px 9px }
+.spectrum-catalog-notice button { border: 1px solid #705d34 }
+.spectrum-catalog-notice button { border-radius: 4px }
+.spectrum-catalog-notice button { color: #e0bd74 }
+.spectrum-catalog-notice button { background: #312817 }
+.spectrum-catalog-notice button { font-size: 8px }
+.spectrum-table-primary { min-height: 240px }
+.spectrum-table-primary { display: flex }
+.spectrum-table-primary { flex-direction: column }
+.spectrum-table-scroll { max-height: 390px }
+.spectrum-table-scroll { overflow: auto }
+.spectrum-table-primary table { min-width: 860px }
+.spectrum-table-primary thead { position: sticky }
+.spectrum-table-primary thead { top: 0 }
+.spectrum-table-primary thead { z-index: 1 }
+.spectrum-table-primary thead { background: #0a1726 }
+.spectrum-table-primary th button { padding: 0 }
+.spectrum-table-primary th button { border: 0 }
+.spectrum-table-primary th button { color: inherit }
+.spectrum-table-primary th button { background: transparent }
+.spectrum-table-primary th button { font: inherit }
+.spectrum-table-primary th button { text-transform: inherit }
+.spectrum-table-primary th button { cursor: pointer }
+.spectrum-table-primary .spectrum-browser-footer { margin-top: auto }
+
+@media (max-width: 1180px) {
+  .spectrum-filters { grid-template-columns: repeat(4, minmax(120px, 1fr)) }
+  .spectrum-filters.advanced { grid-template-columns: repeat(4, minmax(120px, 1fr)) }
+}
+
+@media (max-width: 700px) {
+  .spectrum-catalog-state { display: none }
+  .spectrum-filters, .spectrum-filters.advanced { grid-template-columns: repeat(2, minmax(110px, 1fr)) }
+  .spectrum-selection-control > div { min-width: 0 }
 }

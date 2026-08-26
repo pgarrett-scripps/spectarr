@@ -6,12 +6,16 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from spectarr_extractor.models import ExtractionResult
+from spectarr_extractor.models import ExtractionResult, SpectrumObservation
 from spectarr_extractor.worker import LeaseHeartbeat, MetadataExtractionWorker
 
 
 class FakeProviders:
-    def extract(self, path: Path, declared_format: str | None = None) -> ExtractionResult:
+    def extract(self, path: Path, declared_format: str | None = None, on_spectrum=None, on_provider_start=None) -> ExtractionResult:
+        if on_provider_start:
+            on_provider_start("test-parser", "1.2.3")
+        if on_spectrum:
+            on_spectrum(SpectrumObservation(ordinal=0, ms_level_index=0, native_id="scan=1", scan_number=1))
         return ExtractionResult(
             parser_provider="test-parser",
             parser_version="1.2.3",
@@ -41,6 +45,8 @@ class FakeApi:
         self.posts.append((path, payload))
         if path.endswith("/claim"):
             return {"id": "job-1", "input_artifact_id": "artifact-1"}
+        if path.endswith("/spectrum-catalogs"):
+            return {"id": "catalog-1"}
         return {"id": "result-1"}
 
     def patch(self, path: str, payload: dict[str, Any]):
@@ -63,6 +69,9 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(result_post[1]["extractor"], "test-parser")
             self.assertEqual(result_post[1]["payload"]["qc_summary"]["spectrum_count"], 1)
             self.assertEqual(result_post[1]["payload"]["spectrum_count"], 1)
+            catalog_batch = next(value for value in api.posts if value[0].endswith("/entries"))
+            self.assertEqual(catalog_batch[1]["entries"][0]["scan_number"], 1)
+            self.assertTrue(any(path.endswith("/complete") for path, _ in api.posts))
             self.assertEqual(api.patches[-1][1], {"state": "succeeded", "progress": 1.0})
 
     def test_rejects_relative_path_escape_and_fails_job(self) -> None:

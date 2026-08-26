@@ -4,6 +4,8 @@ import hashlib
 import json
 import secrets
 import shutil
+import base64
+import binascii
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, TypeVar
@@ -11,7 +13,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,6 +40,8 @@ from .models import (
     RunAnnotation,
     RunSample,
     Sample,
+    SpectrumCatalog,
+    SpectrumCatalogEntry,
     UserRole,
 )
 from .schemas import (
@@ -73,6 +77,10 @@ from .schemas import (
     SampleCreate,
     SampleRead,
     StorageReclaimRead,
+    SpectrumCatalogBatch,
+    SpectrumCatalogComplete,
+    SpectrumCatalogCreate,
+    SpectrumQuery,
     SdrfDocumentWrite,
     SdrfValidationRequest,
     SubmissionPreviewRead,
@@ -949,6 +957,366 @@ async def list_artifacts(
 @router.get("/artifacts/{artifact_id}", response_model=ArtifactRead, tags=["artifacts"])
 async def get_artifact(artifact_id: str, session: SessionDep) -> Artifact:
     return fetch_or_404(session, Artifact, artifact_id)
+
+
+def _active_spectrum_catalog(session: Session, artifact_id: str) -> SpectrumCatalog | None:
+    return session.scalar(
+        select(SpectrumCatalog)
+        .where(
+            SpectrumCatalog.artifact_id == artifact_id,
+            SpectrumCatalog.status == "ready",
+        )
+        .order_by(SpectrumCatalog.created_at.desc())
+    )
+
+
+def _spectrum_catalog_view(catalog: SpectrumCatalog) -> dict:
+    return {
+        "id": catalog.id,
+        "artifact_id": catalog.artifact_id,
+        "schema_version": catalog.schema_version,
+        "status": catalog.status,
+        "extractor": catalog.extractor,
+        "extractor_version": catalog.extractor_version,
+        "source_sha256": catalog.source_sha256,
+        "spectrum_count": catalog.spectrum_count,
+        "created_at": catalog.created_at.isoformat(),
+        "updated_at": catalog.updated_at.isoformat(),
+    }
+
+
+def _spectrum_entry_view(entry: SpectrumCatalogEntry) -> dict:
+    return {
+        "id": entry.id,
+        "index": entry.ms_level_index,
+        "ordinal": entry.ordinal,
+        "native_id": entry.native_id,
+        "scan_number": entry.scan_number,
+        "ms_level": entry.ms_level,
+        "rt": entry.retention_time_seconds,
+        "precursor_mz": entry.precursor_mz,
+        "precursor_charge": entry.precursor_charge,
+        "neutral_mass": entry.neutral_mass,
+        "isolation_lower_mz": entry.isolation_lower_mz,
+        "isolation_upper_mz": entry.isolation_upper_mz,
+        "peak_count": entry.peak_count,
+        "total_ion_current": entry.total_ion_current,
+        "base_peak_mz": entry.base_peak_mz,
+        "base_peak_intensity": entry.base_peak_intensity,
+        "mz_min": entry.mz_min,
+        "mz_max": entry.mz_max,
+        "polarity": entry.polarity,
+        "representation": entry.representation,
+        "collision_energy": entry.collision_energy,
+        "activation_type": entry.activation_type,
+        "ion_mobility": entry.ion_mobility,
+        "ion_mobility_unit": entry.ion_mobility_unit,
+    }
+
+
+def _encode_spectrum_cursor(sort: str, direction: str, value: object, row_id: str) -> str:
+    encoded = json.dumps(
+        {"sort": sort, "direction": direction, "value": value, "id": row_id},
+        separators=(",", ":"),
+    ).encode()
+    return base64.urlsafe_b64encode(encoded).decode().rstrip("=")
+
+
+def _decode_spectrum_cursor(cursor: str, sort: str, direction: str) -> dict:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        value = json.loads(base64.urlsafe_b64decode(cursor + padding))
+        if not isinstance(value, dict):
+            raise ValueError
+        cursor_value = value.get("value")
+        if (
+            value.get("sort") != sort
+            or value.get("direction") != direction
+            or not isinstance(value.get("id"), str)
+            or (
+                cursor_value is not None
+                and (isinstance(cursor_value, bool) or not isinstance(cursor_value, (int, float)))
+            )
+        ):
+            raise ValueError
+        return value
+    except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error) as error:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Spectrum query cursor is invalid for this sort",
+        ) from error
+
+
+@router.post(
+    "/artifacts/{artifact_id}/spectrum-catalogs",
+    status_code=status.HTTP_201_CREATED,
+    tags=["spectra"],
+)
+async def begin_spectrum_catalog(
+    artifact_id: str,
+    payload: SpectrumCatalogCreate,
+    session: SessionDep,
+    _worker_auth: WorkerAuthDep,
+) -> dict:
+    artifact = fetch_or_404(session, Artifact, artifact_id)
+    building_ids = select(SpectrumCatalog.id).where(
+        SpectrumCatalog.artifact_id == artifact_id,
+        SpectrumCatalog.status == "building",
+    )
+    session.execute(
+        delete(SpectrumCatalogEntry).where(
+            SpectrumCatalogEntry.catalog_id.in_(building_ids)
+        )
+    )
+    session.execute(
+        delete(SpectrumCatalog).where(
+            SpectrumCatalog.artifact_id == artifact_id,
+            SpectrumCatalog.status == "building",
+        )
+    )
+    catalog = SpectrumCatalog(
+        artifact_id=artifact_id,
+        extractor=payload.extractor,
+        extractor_version=payload.extractor_version,
+        schema_version=payload.schema_version,
+        source_sha256=artifact.sha256,
+    )
+    session.add(catalog)
+    session.commit()
+    session.refresh(catalog)
+    return _spectrum_catalog_view(catalog)
+
+
+@router.post(
+    "/artifacts/{artifact_id}/spectrum-catalogs/{catalog_id}/entries",
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["spectra"],
+)
+async def append_spectrum_catalog_entries(
+    artifact_id: str,
+    catalog_id: str,
+    payload: SpectrumCatalogBatch,
+    session: SessionDep,
+    _worker_auth: WorkerAuthDep,
+) -> dict:
+    catalog = fetch_or_404(session, SpectrumCatalog, catalog_id)
+    if catalog.artifact_id != artifact_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "SpectrumCatalog not found")
+    if catalog.status != "building":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Spectrum catalog is not accepting rows")
+    session.add_all(
+        [
+            SpectrumCatalogEntry(catalog_id=catalog.id, **entry.model_dump())
+            for entry in payload.entries
+        ]
+    )
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Spectrum catalog rows overlap an existing batch",
+        ) from error
+    return {"catalog_id": catalog.id, "accepted": len(payload.entries)}
+
+
+@router.post(
+    "/artifacts/{artifact_id}/spectrum-catalogs/{catalog_id}/complete",
+    tags=["spectra"],
+)
+async def complete_spectrum_catalog(
+    artifact_id: str,
+    catalog_id: str,
+    payload: SpectrumCatalogComplete,
+    session: SessionDep,
+    _worker_auth: WorkerAuthDep,
+) -> dict:
+    catalog = fetch_or_404(session, SpectrumCatalog, catalog_id)
+    if catalog.artifact_id != artifact_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "SpectrumCatalog not found")
+    if catalog.status != "building":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Spectrum catalog is not building")
+    actual_count = session.scalar(
+        select(func.count(SpectrumCatalogEntry.id)).where(
+            SpectrumCatalogEntry.catalog_id == catalog.id
+        )
+    ) or 0
+    if actual_count != payload.spectrum_count:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Spectrum catalog contains {actual_count} rows, expected {payload.spectrum_count}",
+        )
+    old_ids = select(SpectrumCatalog.id).where(
+        SpectrumCatalog.artifact_id == artifact_id,
+        SpectrumCatalog.status == "ready",
+        SpectrumCatalog.id != catalog.id,
+    )
+    session.execute(
+        delete(SpectrumCatalogEntry).where(SpectrumCatalogEntry.catalog_id.in_(old_ids))
+    )
+    session.execute(
+        delete(SpectrumCatalog).where(
+            SpectrumCatalog.artifact_id == artifact_id,
+            SpectrumCatalog.status == "ready",
+            SpectrumCatalog.id != catalog.id,
+        )
+    )
+    catalog.status = "ready"
+    catalog.spectrum_count = actual_count
+    session.commit()
+    session.refresh(catalog)
+    return _spectrum_catalog_view(catalog)
+
+
+@router.get("/artifacts/{artifact_id}/spectrum-catalog", tags=["spectra"])
+async def spectrum_catalog_status(artifact_id: str, session: SessionDep) -> dict:
+    fetch_or_404(session, Artifact, artifact_id)
+    catalog = _active_spectrum_catalog(session, artifact_id)
+    if catalog:
+        return _spectrum_catalog_view(catalog)
+    building = session.scalar(
+        select(SpectrumCatalog)
+        .where(
+            SpectrumCatalog.artifact_id == artifact_id,
+            SpectrumCatalog.status == "building",
+        )
+        .order_by(SpectrumCatalog.created_at.desc())
+    )
+    return (
+        _spectrum_catalog_view(building)
+        if building
+        else {"artifact_id": artifact_id, "status": "unavailable", "spectrum_count": 0}
+    )
+
+
+@router.post("/artifacts/{artifact_id}/spectra/query", tags=["spectra"])
+async def query_artifact_spectra(
+    artifact_id: str,
+    payload: SpectrumQuery,
+    session: SessionDep,
+) -> dict:
+    fetch_or_404(session, Artifact, artifact_id)
+    catalog = _active_spectrum_catalog(session, artifact_id)
+    if catalog is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "A persistent spectrum catalog is not available for this artifact",
+        )
+    filters = [SpectrumCatalogEntry.catalog_id == catalog.id]
+    if payload.ms_levels:
+        filters.append(SpectrumCatalogEntry.ms_level.in_(payload.ms_levels))
+    if payload.charges:
+        filters.append(SpectrumCatalogEntry.precursor_charge.in_(payload.charges))
+    if payload.polarities:
+        filters.append(SpectrumCatalogEntry.polarity.in_(payload.polarities))
+    if payload.representations:
+        filters.append(SpectrumCatalogEntry.representation.in_(payload.representations))
+    if payload.native_id:
+        filters.append(SpectrumCatalogEntry.native_id.ilike(f"%{payload.native_id}%"))
+    range_fields = {
+        "scan_number": SpectrumCatalogEntry.scan_number,
+        "retention_time": SpectrumCatalogEntry.retention_time_seconds,
+        "precursor_mz": SpectrumCatalogEntry.precursor_mz,
+        "neutral_mass": SpectrumCatalogEntry.neutral_mass,
+        "peak_count": SpectrumCatalogEntry.peak_count,
+        "total_ion_current": SpectrumCatalogEntry.total_ion_current,
+        "base_peak_mz": SpectrumCatalogEntry.base_peak_mz,
+    }
+    for name, column in range_fields.items():
+        minimum = getattr(payload, f"{name}_min")
+        maximum = getattr(payload, f"{name}_max")
+        if minimum is not None:
+            filters.append(column >= minimum)
+        if maximum is not None:
+            filters.append(column <= maximum)
+    total = session.scalar(
+        select(func.count(SpectrumCatalogEntry.id)).where(*filters)
+    ) or 0
+    sort_column = getattr(SpectrumCatalogEntry, payload.sort)
+    if payload.cursor:
+        cursor = _decode_spectrum_cursor(payload.cursor, payload.sort, payload.direction)
+        value = cursor["value"]
+        row_id = cursor["id"]
+        if value is None:
+            filters.append(
+                and_(sort_column.is_(None), SpectrumCatalogEntry.id > row_id)
+            )
+        else:
+            comparison = sort_column > value if payload.direction == "asc" else sort_column < value
+            filters.append(
+                or_(
+                    comparison,
+                    and_(sort_column == value, SpectrumCatalogEntry.id > row_id),
+                    sort_column.is_(None),
+                )
+            )
+    ordering = (
+        sort_column.asc().nullslast()
+        if payload.direction == "asc"
+        else sort_column.desc().nullslast()
+    )
+    entries = list(
+        session.scalars(
+            select(SpectrumCatalogEntry)
+            .where(*filters)
+            .order_by(ordering, SpectrumCatalogEntry.id.asc())
+            .limit(payload.limit + 1)
+        )
+    )
+    has_more = len(entries) > payload.limit
+    page = entries[: payload.limit]
+    next_cursor = (
+        _encode_spectrum_cursor(
+            payload.sort,
+            payload.direction,
+            getattr(page[-1], payload.sort),
+            page[-1].id,
+        )
+        if has_more and page
+        else None
+    )
+    return {
+        "schema": "spectarr.spectrum-catalog",
+        "schema_version": 2,
+        "strategy": "persistent",
+        "catalog": _spectrum_catalog_view(catalog),
+        "total": total,
+        "limit": payload.limit,
+        "next_cursor": next_cursor,
+        "items": [_spectrum_entry_view(entry) for entry in page],
+    }
+
+
+@router.get("/artifacts/{artifact_id}/spectra/{entry_id}", tags=["spectra"])
+async def get_catalog_spectrum(
+    artifact_id: str,
+    entry_id: str,
+    session: SessionDep,
+    storage: StorageDep,
+    spectrum_reader: SpectrumReaderDep,
+) -> dict:
+    entry = session.scalar(
+        select(SpectrumCatalogEntry)
+        .join(SpectrumCatalog, SpectrumCatalogEntry.catalog_id == SpectrumCatalog.id)
+        .where(
+            SpectrumCatalogEntry.id == entry_id,
+            SpectrumCatalog.artifact_id == artifact_id,
+            SpectrumCatalog.status == "ready",
+        )
+    )
+    if entry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Spectrum catalog entry not found")
+    return await get_artifact_spectrum(
+        artifact_id,
+        session,
+        storage,
+        spectrum_reader,
+        ms_level=entry.ms_level,
+        index=None if entry.native_id else entry.ms_level_index,
+        scan_number=None,
+        native_id=entry.native_id,
+    )
 
 
 @router.get("/artifacts/{artifact_id}/spectra", tags=["spectra"])

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import socket
 import sys
@@ -14,7 +15,7 @@ from typing import Any, Protocol
 from urllib import error, parse, request
 
 from . import __version__
-from .models import ExtractionResult
+from .models import ExtractionResult, SpectrumObservation
 from .providers import ProviderRegistry
 
 
@@ -128,6 +129,115 @@ class LeaseHeartbeat:
                 return
 
 
+class SpectrumCatalogPublisher:
+    """Publish spectrum metadata in bounded batches during extraction."""
+
+    proton_mass = 1.007276466621
+
+    def __init__(
+        self,
+        api: WorkerApi,
+        artifact_id: str,
+        batch_size: int = 500,
+    ) -> None:
+        self.api = api
+        self.artifact_id = artifact_id
+        self.batch_size = max(1, min(batch_size, 1000))
+        self.catalog_id: str | None = None
+        self.entries: list[dict[str, Any]] = []
+        self.spectrum_count = 0
+
+    def begin(self, extractor: str, extractor_version: str) -> None:
+        self.entries = []
+        self.spectrum_count = 0
+        catalog = self.api.post(
+            f"/api/v1/artifacts/{self.artifact_id}/spectrum-catalogs",
+            {
+                "extractor": extractor,
+                "extractor_version": extractor_version,
+                "schema_version": 1,
+            },
+        )
+        self.catalog_id = str(catalog["id"])
+
+    def add(self, spectrum: SpectrumObservation) -> None:
+        if self.catalog_id is None:
+            raise RuntimeError("Spectrum catalog publishing has not started")
+        isolation_lower = None
+        isolation_upper = None
+        if spectrum.isolation_target_mz is not None:
+            isolation_lower = spectrum.isolation_target_mz - (spectrum.isolation_lower_offset or 0.0)
+            isolation_upper = spectrum.isolation_target_mz + (spectrum.isolation_upper_offset or 0.0)
+        self.entries.append(
+            {
+                "ordinal": spectrum.ordinal,
+                "ms_level_index": spectrum.ms_level_index,
+                "native_id": spectrum.native_id,
+                "scan_number": spectrum.scan_number,
+                "ms_level": spectrum.ms_level,
+                "retention_time_seconds": _finite(spectrum.retention_time_seconds),
+                "precursor_mz": _finite(spectrum.precursor_mz),
+                "precursor_charge": spectrum.precursor_charge,
+                "neutral_mass": self._neutral_mass(spectrum),
+                "isolation_lower_mz": _finite(isolation_lower),
+                "isolation_upper_mz": _finite(isolation_upper),
+                "peak_count": spectrum.peak_count,
+                "total_ion_current": _finite(spectrum.tic),
+                "base_peak_mz": _finite(spectrum.base_peak_mz),
+                "base_peak_intensity": _finite(spectrum.bpc),
+                "mz_min": _finite(spectrum.mz_min),
+                "mz_max": _finite(spectrum.mz_max),
+                "polarity": spectrum.polarity,
+                "representation": spectrum.representation,
+                "collision_energy": _finite(spectrum.collision_energy),
+                "activation_type": spectrum.activation_type,
+                "ion_mobility": _finite(spectrum.ion_mobility),
+                "ion_mobility_unit": spectrum.ion_mobility_unit,
+            }
+        )
+        self.spectrum_count += 1
+        if len(self.entries) >= self.batch_size:
+            self.flush()
+
+    def flush(self) -> None:
+        if not self.entries:
+            return
+        if self.catalog_id is None:
+            raise RuntimeError("Spectrum catalog publishing has not started")
+        self.api.post(
+            f"/api/v1/artifacts/{self.artifact_id}/spectrum-catalogs/{self.catalog_id}/entries",
+            {"entries": self.entries},
+        )
+        self.entries = []
+
+    def complete(self) -> None:
+        if self.catalog_id is None:
+            raise RuntimeError("Spectrum catalog publishing has not started")
+        self.flush()
+        self.api.post(
+            f"/api/v1/artifacts/{self.artifact_id}/spectrum-catalogs/{self.catalog_id}/complete",
+            {"spectrum_count": self.spectrum_count},
+        )
+
+    @classmethod
+    def _neutral_mass(cls, spectrum: SpectrumObservation) -> float | None:
+        if spectrum.precursor_mz is None or not spectrum.precursor_charge:
+            return None
+        charge = abs(spectrum.precursor_charge)
+        polarity = (spectrum.polarity or "").lower()
+        negative = spectrum.precursor_charge < 0 or polarity == "negative"
+        adjustment = cls.proton_mass * charge
+        mass = spectrum.precursor_mz * charge + adjustment if negative else spectrum.precursor_mz * charge - adjustment
+        return _finite(mass)
+
+
+def _finite(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
 class MetadataExtractionWorker:
     """Claim extraction jobs, run a provider, and publish a versioned result."""
 
@@ -166,13 +276,24 @@ class MetadataExtractionWorker:
             artifact = self.api.get(f"/api/v1/artifacts/{artifact_id}")
             location = self.api.get(f"/api/v1/artifacts/{artifact_id}/location")
             source = self._resolve_source(location)
+            catalog = SpectrumCatalogPublisher(
+                self.api,
+                artifact_id,
+                int(os.getenv("SPECTARR_CATALOG_BATCH_SIZE", "500")),
+            )
             with LeaseHeartbeat(self.api, job_id, self.heartbeat_seconds) as heartbeat:
-                result = self.providers.extract(source, str(artifact.get("format") or ""))
+                result = self.providers.extract(
+                    source,
+                    str(artifact.get("format") or ""),
+                    on_spectrum=catalog.add,
+                    on_provider_start=catalog.begin,
+                )
                 heartbeat.ensure_lease()
                 self.api.post(
                     f"/api/v1/artifacts/{artifact_id}/extraction-results",
                     self._result_payload(result),
                 )
+                catalog.complete()
                 heartbeat.ensure_lease()
             self.api.patch(f"/api/v1/jobs/{job_id}", {"state": "succeeded", "progress": 1.0})
         except Exception as extraction_error:
