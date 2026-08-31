@@ -39,10 +39,6 @@ class OpenMassSpecProvider:
             return False
         source_format = normalized_format(path, declared_format).lower()
         supported = {
-            "mzml",
-            "mzxml",
-            "mgf",
-            "ms2",
             "raw",
             "wiff",
             "wiff2",

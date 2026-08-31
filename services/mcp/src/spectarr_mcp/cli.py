@@ -18,7 +18,7 @@ def _enabled(value: str | None) -> bool:
 
 def _server() -> SpectarrMcpServer:
     api = SpectarrApiClient(
-        base_url=os.getenv("SPECTARR_API_URL", os.getenv("SPECTARR_URL", "http://api:8000")),
+        base_url=os.getenv("SPECTARR_API_URL", os.getenv("SPECTARR_URL", "http://127.0.0.1:8000")),
         api_key=os.getenv("SPECTARR_API_KEY"),
         worker_token=os.getenv("SPECTARR_WORKER_TOKEN"),
         timeout_seconds=float(os.getenv("SPECTARR_API_TIMEOUT", "30")),

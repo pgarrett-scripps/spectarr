@@ -1,5 +1,5 @@
 import { FlaskConical } from 'lucide-react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { ActivityPage } from './pages/ActivityPage'
@@ -7,7 +7,7 @@ import { Agents } from './pages/Agents'
 import { Automation } from './pages/Automation'
 import { Integrations } from './pages/Integrations'
 import { ImportRun } from './pages/ImportRun'
-import { Library } from './pages/Library'
+import { Projects } from './pages/Library'
 import { Login } from './pages/Login'
 import { NotFound } from './pages/NotFound'
 import { Overview } from './pages/Overview'
@@ -24,11 +24,14 @@ export default function App() {
   if (!auth.user) return <Login />
   return <Layout><Routes>
     <Route path="/" element={<Overview />} />
-    <Route path="/library" element={<Library />} />
+    <Route path="/projects" element={<Projects />} />
+    <Route path="/projects/:projectId/runs" element={<Runs />} />
+    <Route path="/projects/:projectId/runs/:runId/:tab?" element={<RunDetail />} />
+    <Route path="/library" element={<Navigate to="/projects" replace />} />
     <Route path="/runs" element={<Runs />} />
     <Route path="/inbox" element={<Runs inbox />} />
     <Route path="/runs/import" element={<ImportRun />} />
-    <Route path="/runs/:runId" element={<RunDetail />} />
+    <Route path="/runs/:runId/:tab?" element={<RunDetail />} />
     <Route path="/projects/:projectId/metadata" element={<ProjectMetadata />} />
     <Route path="/activity" element={<ActivityPage />} />
     <Route path="/processing" element={<Processing />} />

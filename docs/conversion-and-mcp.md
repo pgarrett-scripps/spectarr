@@ -43,6 +43,6 @@ Spectarr should keep one layer of concurrency. The job worker schedules individu
 
 ## MCP boundary
 
-The MCP server calls `/api/v1` and never reads PostgreSQL or artifact paths. Read resources cover projects, runs, artifacts, and jobs. Safe tools search runs and inspect state. Write tools queue derivatives, add annotations, or retry jobs.
+The MCP server calls `/api/v1` and never reads SQLite or artifact paths. Read resources cover projects, runs, artifacts, and jobs. Safe tools search runs and inspect state. Write tools queue derivatives, add annotations, or retry jobs.
 
 Writes are disabled by default. Enabling them still requires a scoped API key and confirmation on each tool call. This boundary is also the integration model for a future Searcharr service or any client written in another language.

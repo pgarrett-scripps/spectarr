@@ -229,6 +229,8 @@ async def test_persistent_catalog_filters_pages_and_reads_selected_row(
         app.dependency_overrides.pop(get_spectrum_reader, None)
     assert selected.status_code == 200, selected.text
     assert reader.requests[0]["native_id"] == "scan=11"
+    assert selected.json()["metadata"]["scan_number"] == 11
+    assert selected.json()["metadata"]["native_id"] == "scan=11"
 
 
 async def test_persistent_catalog_rejects_invalid_completion_count(

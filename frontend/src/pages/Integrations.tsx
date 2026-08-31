@@ -7,6 +7,8 @@ import { formatRelativeDate } from '../components/Data'
 import { ApiErrorBanner, PageHeader, Panel } from '../components/Page'
 
 export function Integrations() {
+  const apiBase = `${window.location.origin}/api/v1`
+  const docsBase = window.location.origin
   const [copied, setCopied] = useState<'api' | 'mcp' | 'webhook' | null>(null)
   const [creatingWebhook, setCreatingWebhook] = useState(false)
   const [webhookSecret, setWebhookSecret] = useState<string | null>(null)
@@ -45,8 +47,8 @@ export function Integrations() {
     <div className="integration-grid">
       <Panel title="REST API" subtitle="Versioned access to library data and operations">
         <div className="integration-status"><span className="integration-icon"><Braces size={23} /></span><div><strong>Spectarr API</strong><span>{health.data ? `Version ${health.data.version}` : 'Health unavailable'}</span></div><span className={`health health-${health.data?.status === 'ok' ? 'healthy' : 'offline'}`}><i />{health.data?.status ?? 'offline'}</span></div>
-        <div className="endpoint"><code>http://localhost:8280/api/v1</code><button className="icon-button" aria-label="Copy API URL" onClick={() => void copy('api', 'http://localhost:8280/api/v1')}>{copied === 'api' ? <Check size={15} /> : <Clipboard size={15} />}</button></div>
-        <div className="integration-links"><a className="button button-secondary" href="http://localhost:8280/docs"><BookOpen size={15} /> API docs</a><a className="button button-secondary" href="http://localhost:8280/openapi.json">OpenAPI JSON</a></div>
+        <div className="endpoint"><code>{apiBase}</code><button className="icon-button" aria-label="Copy API URL" onClick={() => void copy('api', apiBase)}>{copied === 'api' ? <Check size={15} /> : <Clipboard size={15} />}</button></div>
+        <div className="integration-links"><a className="button button-secondary" href={`${docsBase}/docs`}><BookOpen size={15} /> API docs</a><a className="button button-secondary" href={`${docsBase}/openapi.json`}>OpenAPI JSON</a></div>
       </Panel>
       <Panel title="MCP server" subtitle="Structured tools and resources for AI clients">
         <div className="integration-status"><span className="integration-icon integration-icon-cyan"><Radio size={23} /></span><div><strong>Streamable HTTP endpoint</strong><span>Read tools enabled by default</span></div></div>

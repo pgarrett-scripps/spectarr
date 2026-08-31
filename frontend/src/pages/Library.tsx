@@ -5,10 +5,10 @@ import { api } from '../api/client'
 import { useResource } from '../api/useResource'
 import { useAuth } from '../auth/AuthContext'
 import { formatBytes, formatRelativeDate } from '../components/Data'
-import { ApiErrorBanner, EmptyState, PageHeader } from '../components/Page'
+import { ApiErrorBanner, EmptyState, LoadingState, PageHeader } from '../components/Page'
 import type { Project, UserRole } from '../types'
 
-export function Library() {
+export function Projects() {
   const resource = useResource(api.projects, [])
   const auth = useAuth()
   const [creating, setCreating] = useState(false)
@@ -34,7 +34,7 @@ export function Library() {
   }
 
   return <>
-    <PageHeader title="Library" description="Organize acquisitions into projects, experiments, and samples." actions={<button className="button button-primary" onClick={() => {
+    <PageHeader title="Projects" description="Choose a project to browse its runs, experiments, and scientific metadata." actions={<button className="button button-primary" onClick={() => {
       setError(null)
       setCreating(true)
     }}><Plus size={16} /> New project</button>} />
@@ -43,15 +43,15 @@ export function Library() {
       <span className="toolbar-label">{resource.data.length} projects</span>
       <div className="view-toggle"><button className={view === 'grid' ? 'active' : ''} aria-label="Grid view" onClick={() => setView('grid')}><Grid3X3 size={16} /></button><button className={view === 'list' ? 'active' : ''} aria-label="List view" onClick={() => setView('list')}><List size={16} /></button></div>
     </div>
-    {resource.data.length === 0 ? <EmptyState title="Your library is empty" description="Create a project, then import your first acquisition." action="Create project" onAction={() => setCreating(true)} /> : (
+    {resource.loading && resource.data.length === 0 ? <LoadingState label="Loading projects" /> : resource.data.length === 0 ? <EmptyState title="No projects yet" description="Create a project, then import your first acquisition." action="Create project" onAction={() => setCreating(true)} /> : (
       <div className={`project-grid ${view === 'list' ? 'project-list' : ''}`}>
         {resource.data.map((project, index) => <article className="project-card" key={project.id}>
-          <div className={`project-cover project-cover-${index % 4}`}><FolderOpen size={28} /><span>{project.runCount} runs</span></div>
+          <Link to={`/projects/${project.id}/runs`} className={`project-cover project-cover-${index % 4}`} aria-label={`View ${project.name} runs`}><FolderOpen size={28} /><span>{project.runCount} {project.runCount === 1 ? 'run' : 'runs'}</span></Link>
           <div className="project-content">
-            <h2>{project.name}</h2>
-            <p>{project.description}</p>
+            <h2><Link to={`/projects/${project.id}/runs`}>{project.name}</Link></h2>
+            <p>{project.description || 'No project description yet.'}</p>
             <div className="project-meta"><span>{formatBytes(project.sizeBytes)}</span><span>Updated {formatRelativeDate(project.updatedAt)}</span></div>
-            <div className="project-links"><Link to={`/runs?project=${project.id}`} className="text-link">Open project <ArrowRight size={14} /></Link>{auth.user?.role === 'admin' && <button className="text-link" onClick={() => setMembersProject(project)}><UsersRound size={14} /> Members</button>}</div>
+            <div className="project-links"><Link to={`/projects/${project.id}/runs`} className="text-link">View runs <ArrowRight size={14} /></Link>{auth.user?.role === 'admin' && <button className="text-link" onClick={() => setMembersProject(project)}><UsersRound size={14} /> Members</button>}</div>
           </div>
         </article>)}
       </div>

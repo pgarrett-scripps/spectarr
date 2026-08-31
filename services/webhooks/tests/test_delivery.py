@@ -6,7 +6,12 @@ import unittest
 from urllib import error
 
 from spectarr_webhooks.api import ClaimedDelivery
-from spectarr_webhooks.delivery import WebhookSender, classify_status, signature_header, validate_destination
+from spectarr_webhooks.delivery import (
+    WebhookSender,
+    classify_status,
+    signature_header,
+    validate_destination,
+)
 
 
 class FakeResponse:
@@ -42,6 +47,10 @@ def claim(url: str = "https://receiver.example/hooks") -> ClaimedDelivery:
     )
 
 
+def public_resolver(*args, **kwargs):
+    return [(2, 1, 6, "", ("8.8.8.8", 443))]
+
+
 class DeliveryTests(unittest.TestCase):
     def test_signature_covers_timestamp_dot_and_exact_body(self) -> None:
         body = b'{ "a": 1 }'
@@ -59,7 +68,11 @@ class DeliveryTests(unittest.TestCase):
             captured.append((value, timeout))
             return response
 
-        outcome = WebhookSender(opener=open_request, max_response_bytes=1024).send(claim(), 1_700_000_000)
+        outcome = WebhookSender(
+            opener=open_request,
+            resolver=public_resolver,
+            max_response_bytes=1024,
+        ).send(claim(), 1_700_000_000)
         self.assertEqual(outcome.status, "delivered")
         outbound, timeout = captured[0]
         self.assertEqual(outbound.data, claim().body.encode())
@@ -78,16 +91,36 @@ class DeliveryTests(unittest.TestCase):
             "https://user:pass@example.test/hook",
             "https://example.test/hook#fragment",
         ):
-            with self.subTest(url=url):
-                with self.assertRaises(ValueError):
-                    validate_destination(url, allow_http=False)
-        validate_destination("http://localhost:8000/hook", allow_http=True)
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                validate_destination(url, allow_http=False)
+        validate_destination(
+            "http://localhost:8000/hook",
+            allow_http=True,
+            allow_private_networks=True,
+        )
+
+    def test_rejects_private_and_mixed_public_private_resolution(self) -> None:
+        private = lambda *args, **kwargs: [(2, 1, 6, "", ("127.0.0.1", 443))]
+        mixed = lambda *args, **kwargs: [
+            (2, 1, 6, "", ("8.8.8.8", 443)),
+            (2, 1, 6, "", ("10.0.0.5", 443)),
+        ]
+        multicast = lambda *args, **kwargs: [(2, 1, 6, "", ("224.0.0.1", 443))]
+        for resolver in (private, mixed, multicast):
+            with self.subTest(resolver=resolver), self.assertRaisesRegex(
+                ValueError, "private"
+            ):
+                validate_destination(
+                    "https://receiver.example/hooks",
+                    allow_http=False,
+                    resolver=resolver,
+                )
 
     def test_network_failures_and_retryable_statuses_retry(self) -> None:
         def offline(value, timeout):
             raise error.URLError("offline")
 
-        outcome = WebhookSender(opener=offline).send(claim(), 1)
+        outcome = WebhookSender(opener=offline, resolver=public_resolver).send(claim(), 1)
         self.assertEqual(outcome.status, "retry")
         for status in (408, 425, 429, 500, 503):
             self.assertEqual(classify_status(status).status, "retry")
@@ -100,7 +133,10 @@ class DeliveryTests(unittest.TestCase):
         invalid = claim()
         invalid = ClaimedDelivery(**{**invalid.__dict__, "body": "not-json"})
         called = []
-        outcome = WebhookSender(opener=lambda *args, **kwargs: called.append(args)).send(invalid, 1)
+        outcome = WebhookSender(
+            opener=lambda *args, **kwargs: called.append(args),
+            resolver=public_resolver,
+        ).send(invalid, 1)
         self.assertEqual(outcome.status, "failed")
         self.assertEqual(called, [])
 

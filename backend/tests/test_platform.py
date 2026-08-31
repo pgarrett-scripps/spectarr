@@ -9,11 +9,9 @@ from alembic import command
 from alembic.config import Config
 from httpx import AsyncClient
 from pydantic import ValidationError
-from sqlalchemy import create_engine, inspect
-
 from spectarr.config import Settings, get_settings
 from spectarr.migrations import migration_root, upgrade_database
-
+from sqlalchemy import create_engine, inspect
 
 pytestmark = pytest.mark.anyio
 
@@ -253,24 +251,39 @@ async def test_login_throttling_persists_account_lock(client: AsyncClient, auth_
     assert int(locked.headers["Retry-After"]) > 0
 
 
-def test_production_settings_reject_development_secrets_and_sqlite() -> None:
+def test_production_settings_require_strong_secrets_and_sqlite() -> None:
     with pytest.raises(ValidationError, match="SPECTARR_SECRET_KEY"):
         Settings(environment="production")
-    with pytest.raises(ValidationError, match="PostgreSQL"):
+    with pytest.raises(ValidationError, match="SQLite"):
         Settings(
             environment="production",
             secret_key="s" * 32,
             worker_token="w" * 32,
-            database_url="sqlite:///spectarr.db",
+            database_url="postgresql+psycopg://app:password@db/spectarr",
         )
     settings = Settings(
         environment="production",
         secret_key="s" * 32,
         worker_token="w" * 32,
-        database_url="postgresql+psycopg://app:password@db/spectarr",
+        database_url="sqlite:///spectarr.db",
         cors_origins=["https://spectarr.example.test"],
     )
     assert settings.environment == "production"
+
+
+def test_settings_reject_invalid_security_and_lifecycle_intervals() -> None:
+    invalid_values = (
+        {"max_upload_bytes": 0},
+        {"job_lease_seconds": 29},
+        {"session_hours": 0},
+        {"upload_session_hours": 8761},
+        {"login_max_attempts": 0},
+        {"login_window_seconds": -1},
+        {"login_lock_seconds": 86401},
+    )
+    for values in invalid_values:
+        with pytest.raises(ValidationError):
+            Settings(**values)
 
 
 async def test_agent_can_be_disabled_and_its_token_rotated(
@@ -373,18 +386,29 @@ async def test_agent_resumable_upload_pipeline_and_extraction(
     )
     assert created.status_code == 201, created.text
     upload = created.json()
-    first = await client.patch(
+    temporary = (
+        Path(os.environ["SPECTARR_STORAGE_ROOT"])
+        / ".spectarr"
+        / "staging"
+        / "uploads"
+        / upload["id"]
+        / "payload"
+    )
+    temporary.write_bytes(content[:8])
+    recovered_offset = await client.patch(
         f"/api/v1/upload-sessions/{upload['id']}",
-        content=content[:8],
+        content=b"must not be appended",
         headers={**agent_headers, "Upload-Offset": "0"},
     )
-    assert first.status_code == 204
-    conflict = await client.patch(
+    assert recovered_offset.status_code == 409
+    assert recovered_offset.headers["Upload-Offset"] == "8"
+    oversized = await client.patch(
         f"/api/v1/upload-sessions/{upload['id']}",
-        content=b"wrong offset",
-        headers={**agent_headers, "Upload-Offset": "0"},
+        content=content[8:] + b"too much",
+        headers={**agent_headers, "Upload-Offset": "8"},
     )
-    assert conflict.status_code == 409
+    assert oversized.status_code == 413
+    assert temporary.read_bytes() == content[:8]
     second = await client.patch(
         f"/api/v1/upload-sessions/{upload['id']}",
         content=content[8:],
@@ -484,6 +508,77 @@ async def test_agent_resumable_upload_pipeline_and_extraction(
     assert run["spectraCount"] == 42
     assert run["ms2Count"] == 31
     assert run["durationMinutes"] == 60
+
+
+async def test_repeated_extraction_refreshes_existing_result(
+    client: AsyncClient, auth_enabled
+) -> None:
+    _, admin_headers = await bootstrap(client)
+    hierarchy = await library_hierarchy(client, admin_headers)
+    artifact = (
+        await client.post(
+            f"/api/v1/runs/{hierarchy['run_id']}/artifacts/upload",
+            files={"file": ("refresh.mzML", b"<mzML/>")},
+            data={"role": "source"},
+            headers=admin_headers,
+        )
+    ).json()
+    endpoint = f"/api/v1/artifacts/{artifact['id']}/extraction-results"
+    identity = {
+        "schema_version": "1.0",
+        "extractor": "fixture-parser",
+        "extractor_version": "2.0",
+        "result_type": "metadata",
+    }
+    first = await client.post(
+        endpoint,
+        json={
+            **identity,
+            "payload": {"qc_summary": {"spectrum_count": 1}},
+            "warnings": ["stale warning"],
+        },
+        headers=admin_headers,
+    )
+    competing = await client.post(
+        endpoint,
+        json={
+            **identity,
+            "extractor_version": "3.0",
+            "payload": {"qc_summary": {"spectrum_count": 2}},
+            "warnings": ["newer result"],
+        },
+        headers=admin_headers,
+    )
+    refreshed = await client.post(
+        endpoint,
+        json={
+            **identity,
+            "payload": {
+                "qc_summary": {
+                    "spectrum_count": 12,
+                    "spectra_by_ms_level": {"2": 9},
+                }
+            },
+            "warnings": [],
+        },
+        headers=admin_headers,
+    )
+
+    assert first.status_code == 201, first.text
+    assert competing.status_code == 201, competing.text
+    assert refreshed.status_code == 201, refreshed.text
+    assert refreshed.json()["id"] == first.json()["id"]
+    assert refreshed.json()["payload"]["qc_summary"]["spectrum_count"] == 12
+    assert refreshed.json()["warnings"] == []
+    results = (await client.get(endpoint, headers=admin_headers)).json()
+    assert len(results) == 2
+    assert results[0]["id"] == first.json()["id"]
+    latest = (await client.get(f"{endpoint}/latest", headers=admin_headers)).json()
+    assert latest["id"] == first.json()["id"]
+    run = (await client.get(f"/api/v1/runs/{hierarchy['run_id']}", headers=admin_headers)).json()
+    assert run["spectraCount"] == 12
+    assert run["ms2Count"] == 9
+    assert run["latest_extraction"]["warnings"] == []
 
 
 async def test_agent_inbox_bulk_assignment_and_library_relocation(

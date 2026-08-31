@@ -13,7 +13,7 @@ Conversion, scoped batch processing, extraction, annotation, retry, and automati
 Configuration:
 
 ```text
-SPECTARR_API_URL=http://api:8000
+SPECTARR_API_URL=http://127.0.0.1:8000
 SPECTARR_API_KEY=<scoped service token>
 SPECTARR_API_TIMEOUT=30
 SPECTARR_MCP_ALLOW_WRITES=false

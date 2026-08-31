@@ -11,7 +11,7 @@ pip install -e '.[dev]'
 uvicorn spectarr.main:app --reload
 ```
 
-The default database is SQLite at `./data/spectarr.db`. Artifacts are stored at `./data/storage`. Immutable objects live below `.spectarr`, while normal filenames are exposed below `library`. Set `SPECTARR_DATABASE_URL` to a SQLAlchemy PostgreSQL URL for PostgreSQL.
+The database is SQLite at `./data/spectarr.db`. Artifacts are stored at `./data/storage`. Immutable objects live below `.spectarr`, while normal filenames are exposed below `library`.
 
 Alembic migrations run during application startup. Pre-Alembic MVP databases are detected and adopted without replacing their existing tables. Tests may still create isolated schemas directly.
 
@@ -25,7 +25,7 @@ Production deployments should set:
 
 - `SPECTARR_SECRET_KEY` to a stable random secret used to derive webhook signing keys
 - `SPECTARR_WORKER_TOKEN` while legacy local workers still use the compatibility header
-- `SPECTARR_DATABASE_URL` to the PostgreSQL connection URL
+- `SPECTARR_DATABASE_URL` to the SQLite database URL when the default path is not suitable
 - `SPECTARR_STORAGE_ROOT` to the shared durable storage mount
 - `SPECTARR_LIBRARY_ROOT` to the human-readable library path, which defaults to `<storage root>/library`
 - `SPECTARR_LIBRARY_LINK_MODE` to `auto`, `hardlink`, or `copy`

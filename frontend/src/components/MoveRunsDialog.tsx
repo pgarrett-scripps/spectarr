@@ -46,7 +46,7 @@ export function MoveRunsDialog({ runIds, onClose, onMoved }: MoveRunsDialogProps
 
   return <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="move-runs-title">
     <div className="modal-header"><div><h2 id="move-runs-title">Move {runIds.length === 1 ? 'run' : `${runIds.length} runs`}</h2><p>Artifacts and processing history remain attached.</p></div><button className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
-    {destinationProjects.length === 0 ? <div className="token-result"><strong>No destination projects</strong><p>Create a scientific project and experiment before assigning inbox runs.</p><Link className="button button-primary" to="/library" onClick={onClose}>Open Library</Link></div> : <form onSubmit={event => void move(event)}>
+    {destinationProjects.length === 0 ? <div className="token-result"><strong>No destination projects</strong><p>Create a scientific project and experiment before assigning inbox runs.</p><Link className="button button-primary" to="/projects" onClick={onClose}>Open Projects</Link></div> : <form onSubmit={event => void move(event)}>
       <div className="modal-fields">
         <label><span>Project</span><select aria-label="Destination project" value={selectedProjectId} onChange={event => {
           setProjectId(event.target.value)

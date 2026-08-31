@@ -1336,7 +1336,7 @@ async def get_catalog_spectrum(
     )
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Spectrum catalog entry not found")
-    return await get_artifact_spectrum(
+    payload = await get_artifact_spectrum(
         artifact_id,
         session,
         storage,
@@ -1346,6 +1346,26 @@ async def get_catalog_spectrum(
         scan_number=None,
         native_id=entry.native_id,
     )
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        catalog_metadata = {
+            "ms_level": entry.ms_level,
+            "native_id": entry.native_id,
+            "scan_number": entry.scan_number,
+            "rt": entry.retention_time_seconds,
+        }
+        payload = {
+            **payload,
+            "metadata": {
+                **metadata,
+                **{
+                    key: value
+                    for key, value in catalog_metadata.items()
+                    if value is not None
+                },
+            },
+        }
+    return payload
 
 
 @router.get("/artifacts/{artifact_id}/spectra", tags=["spectra"])
@@ -1720,11 +1740,21 @@ async def list_jobs(
     session: SessionDep,
     state: JobState | None = None,
     kind: str | None = None,
+    claimable: bool = False,
     offset: int = 0,
     limit: int = Query(100, ge=1, le=500),
 ) -> list[dict]:
     query = select(Job).order_by(Job.created_at.desc())
-    if state:
+    if claimable:
+        now = datetime.now(timezone.utc)
+        query = query.where(
+            Job.attempts < Job.max_attempts,
+            or_(
+                Job.state == JobState.QUEUED,
+                and_(Job.state == JobState.RUNNING, Job.lease_expires_at < now),
+            ),
+        )
+    elif state:
         query = query.where(Job.state == state)
     if kind:
         query = query.where(Job.kind == kind)
@@ -2011,7 +2041,7 @@ def run_view(run: Run) -> dict:
         None,
     )
     extraction_results = [result for artifact in artifacts for result in artifact.extraction_results]
-    latest_extraction = max(extraction_results, key=lambda result: result.created_at, default=None)
+    latest_extraction = max(extraction_results, key=lambda result: result.updated_at, default=None)
     latest_jobs: dict[tuple[str, str, str | None], Job] = {}
     for artifact in artifacts:
         for job in artifact.jobs_as_input:
@@ -2098,6 +2128,7 @@ def run_view(run: Run) -> dict:
                 "payload": latest_extraction.payload,
                 "warnings": latest_extraction.warnings,
                 "created_at": latest_extraction.created_at.isoformat(),
+                "updated_at": latest_extraction.updated_at.isoformat(),
             }
             if latest_extraction
             else None

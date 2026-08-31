@@ -30,41 +30,40 @@ jobs:
             python3 scripts/check_version.py
           fi
 
-  images:
+  image:
     needs: validate
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: api
-            context: backend
-            dockerfile: backend/Dockerfile
-          - name: dashboard
-            context: frontend
-            dockerfile: frontend/Dockerfile
-          - name: extractor
-            context: services/extractor
-            dockerfile: services/extractor/Dockerfile
-          - name: mcp
-            context: services/mcp
-            dockerfile: services/mcp/Dockerfile
-          - name: webhooks
-            context: services/webhooks
-            dockerfile: services/webhooks/Dockerfile
-          - name: converter
-            context: services/converter
-            dockerfile: services/converter/Dockerfile
-            mscli: true
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve pinned dependencies
+        id: dependencies
+        shell: bash
+        run: |
+          source DEPENDENCIES.env
+          echo "msconvert_repository=$MSCONVERT_CLI_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "msconvert_ref=$MSCONVERT_CLI_REF" >> "$GITHUB_OUTPUT"
+          echo "mzmlpy_repository=$MZMLPY_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "mzmlpy_ref=$MZMLPY_REF" >> "$GITHUB_OUTPUT"
+          echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
       - name: Check out MSCLI
-        if: matrix.mscli
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.MSCONVERT_CLI_REPOSITORY || 'pgarrett-scripps/msconvert-cli' }}
-          ref: ${{ vars.MSCONVERT_CLI_REF || 'main' }}
+          repository: ${{ steps.dependencies.outputs.msconvert_repository }}
+          ref: ${{ steps.dependencies.outputs.msconvert_ref }}
           path: distribution/msconvert-cli
+      - name: Check out mzmlpy
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
+          ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
+          path: distribution/mzmlpy
+      - name: Check out Spxtacular
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
+          ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
+          path: distribution/spxtacular
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -77,19 +76,22 @@ jobs:
         run: |
           owner=${GITHUB_REPOSITORY_OWNER,,}
           version=$(tr -d '[:space:]' < VERSION)
-          echo "image=${REGISTRY}/${owner}/spectarr-${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${owner}/spectarr" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - id: build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: .
+          file: Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
             ${{ steps.names.outputs.image }}:${{ steps.names.outputs.version }}
             ${{ steps.names.outputs.image }}:latest
-          build-contexts: ${{ matrix.mscli && 'msconvert_cli=./distribution/msconvert-cli' || '' }}
+          build-contexts: |
+            msconvert_cli=./distribution/msconvert-cli
+            mzmlpy_source=./distribution/mzmlpy
+            spxtacular_source=./distribution/spxtacular
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
@@ -118,9 +120,9 @@ jobs:
           cp release/compose.yaml release/.env.example release/README.md release/bundle/
           cp release/dist/*.whl release/bundle/
           mkdir -p release/bundle/scripts release/bundle/examples
-          cp scripts/backup.sh scripts/verify-backup.sh scripts/restore-test.sh scripts/smoke_test.py scripts/release-rehearsal.sh release/bundle/scripts/
+          cp scripts/backup.sh scripts/verify-backup.sh scripts/restore-test.sh scripts/smoke_test.py scripts/sqlite-soak.py scripts/vendor-acceptance.py scripts/release-rehearsal.sh release/bundle/scripts/
           cp examples/demo.mgf release/bundle/examples/
-          cp VERSION CHANGELOG.md SECURITY.md LICENSE NOTICE release/bundle/
+          cp VERSION CHANGELOG.md SECURITY.md LICENSE NOTICE DEPENDENCIES.env constraints.txt release/bundle/
           cp docs/release-checklist.md release/bundle/
           tar -C release/bundle -czf "release/spectarr-${version}.tar.gz" .
           (
@@ -220,7 +222,7 @@ jobs:
             services/agent/windows/output/spectarr-agent-*.msi.sha256
 
   smoke:
-    needs: [images, bundle]
+    needs: [image, bundle]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -237,7 +239,7 @@ jobs:
         working-directory: candidate/install
         run: |
           owner=${GITHUB_REPOSITORY_OWNER,,}
-          SPECTARR_IMAGE_PREFIX="${REGISTRY}/${owner}/spectarr" scripts/release-rehearsal.sh
+          SPECTARR_IMAGE="${REGISTRY}/${owner}/spectarr" scripts/release-rehearsal.sh
 
   publish:
     needs: [smoke, windows-agent]

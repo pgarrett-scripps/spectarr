@@ -1,4 +1,4 @@
-import { AlertCircle, Plus, RotateCw } from 'lucide-react'
+import { AlertCircle, LoaderCircle, Plus, RotateCw } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string, title: string, description: string, actions?: ReactNode }) {
@@ -46,4 +46,8 @@ export function EmptyState({ title, description, action = 'Add data', onAction }
       {onAction && <button className="button button-primary" onClick={onAction}><Plus size={16} />{action}</button>}
     </div>
   )
+}
+
+export function LoadingState({ label = 'Loading live data' }: { label?: string }) {
+  return <div className="content-loading" role="status"><LoaderCircle className="spin" size={20} /><span>{label}</span></div>
 }

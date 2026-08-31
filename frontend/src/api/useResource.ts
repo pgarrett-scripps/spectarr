@@ -7,9 +7,10 @@ export interface ResourceState<T> {
   refresh: () => void
 }
 
-export function useResource<T>(load: () => Promise<T>, initial: T): ResourceState<T> {
+export function useResource<T>(load: () => Promise<T>, initial: T, reloadKey?: unknown): ResourceState<T> {
   const loadRef = useRef(load)
   const initialRef = useRef(initial)
+  const reloadKeyRef = useRef(reloadKey)
   loadRef.current = load
   initialRef.current = initial
   const [data, setData] = useState(initial)
@@ -19,6 +20,11 @@ export function useResource<T>(load: () => Promise<T>, initial: T): ResourceStat
 
   useEffect(() => {
     let cancelled = false
+    if (!Object.is(reloadKeyRef.current, reloadKey)) {
+      reloadKeyRef.current = reloadKey
+      setData(initialRef.current)
+      setError(null)
+    }
     setLoading(true)
 
     loadRef.current()
@@ -39,7 +45,7 @@ export function useResource<T>(load: () => Promise<T>, initial: T): ResourceStat
     return () => {
       cancelled = true
     }
-  }, [attempt])
+  }, [attempt, reloadKey])
 
   return { data, loading, error, refresh: () => setAttempt(value => value + 1) }
 }

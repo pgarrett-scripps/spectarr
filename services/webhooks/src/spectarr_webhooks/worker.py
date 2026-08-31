@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Callable, Protocol
+from typing import Protocol
 
 from .api import ApiError, ClaimedDelivery, SpectarrWebhookApi
 from .config import WorkerConfig
 from .delivery import DeliveryOutcome, WebhookSender
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -135,5 +135,6 @@ def build_worker(config: WorkerConfig) -> WebhookWorker:
         timeout_seconds=config.request_timeout_seconds,
         max_response_bytes=config.max_response_bytes,
         allow_http=config.allow_http_destinations,
+        allow_private_networks=config.allow_private_networks,
     )
     return WebhookWorker(config, api, sender)

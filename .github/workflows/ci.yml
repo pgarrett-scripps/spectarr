@@ -14,6 +14,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve pinned dependencies
+        id: dependencies
+        shell: bash
+        run: |
+          source DEPENDENCIES.env
+          echo "msconvert_repository=$MSCONVERT_CLI_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "msconvert_ref=$MSCONVERT_CLI_REF" >> "$GITHUB_OUTPUT"
+          echo "mzmlpy_repository=$MZMLPY_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "mzmlpy_ref=$MZMLPY_REF" >> "$GITHUB_OUTPUT"
+          echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.dependencies.outputs.msconvert_repository }}
+          ref: ${{ steps.dependencies.outputs.msconvert_ref }}
+          path: dependencies/msconvert-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
+          ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
+          path: dependencies/mzmlpy
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
+          ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
+          path: dependencies/spxtacular
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,7 +54,7 @@ jobs:
       - name: Install dashboard
         run: npm ci --prefix frontend
       - name: Test
-        run: make test
+        run: make test MSCONVERT_CLI_SOURCE=dependencies/msconvert-cli MZMLPY_SOURCE=dependencies/mzmlpy SPXTACULAR_SOURCE=dependencies/spxtacular
 
   integration:
     needs: test
@@ -37,11 +63,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: spectarr
+      - name: Resolve pinned dependencies
+        id: dependencies
+        working-directory: spectarr
+        shell: bash
+        run: |
+          source DEPENDENCIES.env
+          echo "msconvert_repository=$MSCONVERT_CLI_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "msconvert_ref=$MSCONVERT_CLI_REF" >> "$GITHUB_OUTPUT"
+          echo "mzmlpy_repository=$MZMLPY_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "mzmlpy_ref=$MZMLPY_REF" >> "$GITHUB_OUTPUT"
+          echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
-          repository: ${{ vars.MSCONVERT_CLI_REPOSITORY || 'pgarrett-scripps/msconvert-cli' }}
-          ref: ${{ vars.MSCONVERT_CLI_REF || 'main' }}
+          repository: ${{ steps.dependencies.outputs.msconvert_repository }}
+          ref: ${{ steps.dependencies.outputs.msconvert_ref }}
           path: msconvert-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
+          ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
+          path: mzmlpy
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
+          ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
+          path: spxtacular
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

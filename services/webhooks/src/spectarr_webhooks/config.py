@@ -16,7 +16,7 @@ def environment_flag(name: str, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class WorkerConfig:
-    server_url: str = "http://api:8000"
+    server_url: str = "http://127.0.0.1:8000"
     service_token: str | None = None
     worker_token: str | None = None
     worker_id: str = ""
@@ -25,8 +25,9 @@ class WorkerConfig:
     batch_size: int = 25
     max_response_bytes: int = 64 * 1024
     allow_http_destinations: bool = False
+    allow_private_networks: bool = False
 
-    def validate(self) -> "WorkerConfig":
+    def validate(self) -> WorkerConfig:
         if not self.server_url.startswith(("http://", "https://")):
             raise ValueError("SPECTARR_URL must use http or https")
         if bool(self.service_token) == bool(self.worker_token):
@@ -48,9 +49,9 @@ class WorkerConfig:
         )
 
     @classmethod
-    def from_environment(cls) -> "WorkerConfig":
+    def from_environment(cls) -> WorkerConfig:
         return cls(
-            server_url=os.getenv("SPECTARR_URL", "http://api:8000"),
+            server_url=os.getenv("SPECTARR_URL", "http://127.0.0.1:8000"),
             service_token=os.getenv("SPECTARR_SERVICE_TOKEN") or None,
             worker_token=os.getenv("SPECTARR_WORKER_TOKEN") or None,
             worker_id=os.getenv("SPECTARR_WORKER_ID", socket.gethostname()),
@@ -59,4 +60,7 @@ class WorkerConfig:
             batch_size=int(os.getenv("SPECTARR_WEBHOOK_BATCH_SIZE", "25")),
             max_response_bytes=int(os.getenv("SPECTARR_WEBHOOK_MAX_RESPONSE_BYTES", str(64 * 1024))),
             allow_http_destinations=environment_flag("SPECTARR_WEBHOOK_ALLOW_HTTP"),
+            allow_private_networks=environment_flag(
+                "SPECTARR_WEBHOOK_ALLOW_PRIVATE_NETWORKS"
+            ),
         ).validate()

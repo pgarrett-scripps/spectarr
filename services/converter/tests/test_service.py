@@ -5,7 +5,8 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from mzmlpy import AccessStrategy, Mzml
 from mzmlpy.embedded_indexed_gzip import is_embedded_indexed_gzip
@@ -22,11 +23,13 @@ class FakeRunner:
         suffix: str = ".mzML",
         return_code: int = 0,
         cancelled: bool = False,
+        stderr: str = "",
     ) -> None:
         self.content = content
         self.suffix = suffix
         self.return_code = return_code
         self.cancelled = cancelled
+        self.stderr = stderr
         self.recipe: Recipe | None = None
 
     def run(
@@ -44,7 +47,7 @@ class FakeRunner:
         return ProcessReport(
             self.return_code,
             "converter output",
-            "",
+            self.stderr,
             ("docker", "run", image),
             "1.2.0",
             self.cancelled,
@@ -103,6 +106,16 @@ class ConversionServiceTests(unittest.TestCase):
         self.assertEqual(result.outputs, [])
         self.assertIn("Invalid mzML", result.error or "")
 
+    def test_failed_converter_includes_stderr_in_error(self) -> None:
+        service = ConversionService(
+            self.root / "scratch",
+            (self.source_root,),
+            runner=FakeRunner(b"", return_code=1, stderr="invalid filter syntax"),
+        )
+        result = service.convert(ConversionRequest("job-failed", str(self.source), "archival-mzml-v1"))
+        self.assertEqual(result.status, "failed")
+        self.assertIn("invalid filter syntax", result.error or "")
+
     def test_cancellation_is_reported_and_scratch_is_removed(self) -> None:
         cancel = threading.Event()
         cancel.set()
@@ -143,6 +156,30 @@ class ConversionServiceTests(unittest.TestCase):
         command = ["docker", "run", "-v", "/data/storage/hash:/input/sample.raw", "image:1"]
         rewritten = runner._map_docker_mount_sources(command)
         self.assertIn("/host/project/data/storage/hash:/input/sample.raw", rewritten)
+
+    def test_runner_names_conversion_container_for_cancellation(self) -> None:
+        output_dir = self.root / "output"
+        output_dir.mkdir()
+        converter = Mock()
+        converter.build_docker_command.return_value = ["docker", "run", "image:1"]
+        converter.execute_command.return_value = SimpleNamespace(
+            return_code=0,
+            stdout="",
+            stderr="",
+            command=("docker", "run", "image:1"),
+            tool_version="1.2.0",
+            cancelled=False,
+        )
+        with patch("msconvert_cli.converter.SimplePWizConverter", return_value=converter):
+            MsconvertCliRunner().run(
+                self.source,
+                output_dir,
+                get_recipe("archival-mzml-v1"),
+                "pwiz:1",
+            )
+        container_name = converter.build_docker_command.call_args.kwargs["container_name"]
+        self.assertTrue(container_name.startswith("spectarr-msconvert-"))
+        self.assertEqual(converter.execute_command.call_args.kwargs["container_name"], container_name)
 
     def test_named_config_is_copied_into_the_shared_job_directory(self) -> None:
         config = self.root / "sage.txt"

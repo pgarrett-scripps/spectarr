@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+
+from spectarr.database import SessionLocal
+from spectarr.models import Job
 
 
 pytestmark = pytest.mark.anyio
@@ -395,6 +399,8 @@ async def test_conversion_recipe_and_job_lifecycle(
     job = queued.json()
     assert job["state"] == "queued"
     assert len(job["parameters"]["recipe_fingerprint"]) == 64
+    claimable = (await client.get("/api/v1/jobs?kind=convert&claimable=true")).json()
+    assert job["id"] in {value["id"] for value in claimable}
 
     running = await client.post(f"/api/v1/jobs/{job['id']}/claim")
     assert running.status_code == 200
@@ -402,6 +408,18 @@ async def test_conversion_recipe_and_job_lifecycle(
     assert running.json()["attempts"] == 1
     duplicate_claim = await client.post(f"/api/v1/jobs/{job['id']}/claim")
     assert duplicate_claim.status_code == 409
+    active = (await client.get("/api/v1/jobs?kind=convert&claimable=true")).json()
+    assert job["id"] not in {value["id"] for value in active}
+    with SessionLocal() as session:
+        stored_job = session.get(Job, job["id"])
+        assert stored_job is not None
+        stored_job.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+    expired = (await client.get("/api/v1/jobs?kind=convert&claimable=true")).json()
+    assert job["id"] in {value["id"] for value in expired}
+    reclaimed = await client.post(f"/api/v1/jobs/{job['id']}/claim")
+    assert reclaimed.status_code == 200
+    assert reclaimed.json()["attempts"] == 2
     progress = await client.patch(f"/api/v1/jobs/{job['id']}", json={"progress": 0.25})
     assert progress.json()["progress"] == 0.25
 

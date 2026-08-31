@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Annotated
@@ -44,23 +46,25 @@ from .models import (
     Run,
     RunSample,
     Sample,
+    TokenKind,
     UploadPart,
     UploadSession,
     UploadState,
     User,
     UserRole,
-    TokenKind,
     WebhookDelivery,
     WebhookDestination,
 )
+from .pipeline import enqueue_webhook_deliveries, schedule_source_pipeline
+from .processing import reconcile_processing_rule
 from .schemas import (
     AgentHeartbeat,
     AgentRead,
     AgentRegister,
     AgentUpdate,
     ArtifactRead,
-    AuthConfiguration,
     AuditLogRead,
+    AuthConfiguration,
     AutomationRuleCreate,
     AutomationRuleRead,
     AutomationRuleUpdate,
@@ -86,9 +90,6 @@ from .schemas import (
     WebhookUpdate,
 )
 from .storage import hash_file
-from .pipeline import enqueue_webhook_deliveries, schedule_source_pipeline
-from .processing import reconcile_processing_rule
-
 
 auth_router = APIRouter(tags=["auth"])
 platform_router = APIRouter()
@@ -294,12 +295,18 @@ async def update_user(user_id: str, payload: UserUpdate, request: Request, sessi
     user = fetch_or_404(session, User, user_id)
     values = payload.model_dump(exclude_unset=True)
     settings = get_settings()
-    if settings.effective_auth_mode == "local" and user.username == settings.local_user:
-        if values.get("role") not in {None, UserRole.ADMIN} or values.get("active") is False:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "The active local administrator cannot be demoted or disabled",
-            )
+    if (
+        settings.effective_auth_mode == "local"
+        and user.username == settings.local_user
+        and (
+            values.get("role") not in {None, UserRole.ADMIN}
+            or values.get("active") is False
+        )
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The active local administrator cannot be demoted or disabled",
+        )
     password = values.pop("password", None)
     for field, value in values.items():
         setattr(user, field, value)
@@ -444,22 +451,26 @@ async def create_extraction_result(
             ExtractionResult.result_type == payload.result_type,
         )
     )
+    result = existing or ExtractionResult(artifact_id=artifact_id, **payload.model_dump())
     if existing:
-        return existing
-    result = ExtractionResult(artifact_id=artifact_id, **payload.model_dump())
-    session.add(result)
+        result.payload = payload.payload
+        result.warnings = payload.warnings
+    else:
+        session.add(result)
     artifact.metadata_json = {**artifact.metadata_json, "latest_extraction": payload.payload}
     artifact.run.metadata_json = {**artifact.run.metadata_json, **normalized_run_metadata(payload.payload)}
-    event = EventOutbox(
+    if existing is None:
+        event = EventOutbox(
             topic="artifact.metadata_extracted",
             aggregate_type="artifact",
             aggregate_id=artifact.id,
             dedupe_key=f"metadata:{artifact.id}:{payload.extractor}:{payload.extractor_version}:{payload.schema_version}",
             payload={"artifact_id": artifact.id, "run_id": artifact.run_id, "result_type": payload.result_type},
         )
-    session.add(event)
+        session.add(event)
     session.flush()
-    enqueue_webhook_deliveries(session, event)
+    if existing is None:
+        enqueue_webhook_deliveries(session, event)
     LibraryMaterializer(storage).write_run_manifest(artifact.run)
     session.commit()
     session.refresh(result)
@@ -477,7 +488,7 @@ async def list_extraction_results(artifact_id: str, session: SessionDep) -> list
         session.scalars(
             select(ExtractionResult)
             .where(ExtractionResult.artifact_id == artifact_id)
-            .order_by(ExtractionResult.created_at.desc())
+            .order_by(ExtractionResult.updated_at.desc())
         )
     )
 
@@ -493,7 +504,7 @@ async def latest_extraction_result(
     query = select(ExtractionResult).where(ExtractionResult.artifact_id == artifact_id)
     if result_type:
         query = query.where(ExtractionResult.result_type == result_type)
-    result = session.scalar(query.order_by(ExtractionResult.created_at.desc()))
+    result = session.scalar(query.order_by(ExtractionResult.updated_at.desc()))
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No extraction result exists")
     return result
@@ -506,7 +517,7 @@ async def latest_run_qc(run_id: str, session: SessionDep) -> dict:
         select(ExtractionResult)
         .join(Artifact, ExtractionResult.artifact_id == Artifact.id)
         .where(Artifact.run_id == run_id)
-        .order_by(ExtractionResult.created_at.desc())
+        .order_by(ExtractionResult.updated_at.desc())
     )
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No QC extraction exists")
@@ -517,6 +528,7 @@ async def latest_run_qc(run_id: str, session: SessionDep) -> dict:
         "qc_summary": result.payload.get("qc_summary", {}),
         "warnings": result.warnings,
         "created_at": result.created_at,
+        "updated_at": result.updated_at,
     }
 
 
@@ -953,10 +965,19 @@ async def complete_upload_session(
             "artifact": ArtifactRead.model_validate(artifact).model_dump(),
         }
     except ValueError as error:
-        upload.state = UploadState.FAILED
-        upload.error = str(error)
+        session.rollback()
+        failed_upload = fetch_or_404(session, UploadSession, upload_id)
+        failed_upload.state = UploadState.FAILED
+        failed_upload.error = str(error)
         session.commit()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
+    except Exception as error:
+        session.rollback()
+        retryable_upload = fetch_or_404(session, UploadSession, upload_id)
+        retryable_upload.state = UploadState.OPEN
+        retryable_upload.error = f"Upload verification failed and may be retried: {error}"[:10000]
+        session.commit()
+        raise
 
 
 @platform_router.get("/events/outbox", tags=["events"])
@@ -1313,8 +1334,10 @@ def owned_upload(session: Session, upload_id: str, principal: Principal) -> Uplo
     upload = fetch_or_404(session, UploadSession, upload_id)
     if upload.agent_id != principal.agent_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Upload session belongs to a different agent")
-    comparison_now = datetime.now(upload.expires_at.tzinfo) if upload.expires_at.tzinfo else datetime.now()
-    if upload.expires_at <= comparison_now and upload.state == UploadState.OPEN:
+    expires_at = upload.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc) and upload.state == UploadState.OPEN:
         upload.state = UploadState.EXPIRED
         session.commit()
         raise HTTPException(status.HTTP_410_GONE, "Upload session has expired")
@@ -1330,20 +1353,59 @@ async def append_request_body(
     supplied_offset: int,
     total_size: int,
 ) -> None:
-    if supplied_offset != record.offset:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Upload offset does not match",
-            headers={"Upload-Offset": str(record.offset)},
-        )
     written = 0
-    with path.open("ab") as handle:
-        async for chunk in request.stream():
-            if record.offset + written + len(chunk) > total_size:
-                raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Chunk exceeds declared upload size")
-            handle.write(chunk)
-            written += len(chunk)
-    record.offset += written
+    with locked_upload_file(path) as handle:
+        handle.seek(0, os.SEEK_END)
+        actual_offset = handle.tell()
+        if actual_offset > total_size:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Stored upload exceeds its declared size",
+                headers={"Upload-Offset": str(actual_offset)},
+            )
+        if supplied_offset != actual_offset:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Upload offset does not match",
+                headers={"Upload-Offset": str(actual_offset)},
+            )
+        record.offset = actual_offset
+        try:
+            async for chunk in request.stream():
+                if actual_offset + written + len(chunk) > total_size:
+                    raise HTTPException(
+                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        "Chunk exceeds declared upload size",
+                        headers={"Upload-Offset": str(actual_offset)},
+                    )
+                handle.write(chunk)
+                written += len(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        except BaseException:
+            handle.seek(actual_offset)
+            handle.truncate()
+            handle.flush()
+            raise
+    record.offset = actual_offset + written
+
+
+@contextmanager
+def locked_upload_file(path: Path):
+    import fcntl
+
+    with path.open("r+b") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as lock_error:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Another request is writing this upload",
+            ) from lock_error
+        try:
+            yield handle
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def upload_session_view(upload: UploadSession) -> dict:

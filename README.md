@@ -1,178 +1,207 @@
 # Spectarr
 
-Spectarr is a self-hosted ARR application for mass spectrometry data. It stores immutable source acquisitions, generates reproducible derivatives, extracts scientific metadata and QC summaries, accepts automatic instrument uploads, and exposes a dashboard, REST API, and MCP server.
+### A self-hosted home for mass spectrometry data
 
-## Architecture
+Spectarr turns scattered instrument files into an organized, searchable workspace. Keep every original acquisition, inspect spectra in the browser, generate reproducible open formats, and automate intake from instrument computers.
+
+[![CI](https://github.com/pgarrett-scripps/spectarr/actions/workflows/ci.yml/badge.svg)](https://github.com/pgarrett-scripps/spectarr/actions/workflows/ci.yml)
+[![Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+![One container](https://img.shields.io/badge/deployment-one%20container-7c5cff)
+![SQLite](https://img.shields.io/badge/database-SQLite-0f80cc)
+
+![Spectarr workspace overview](docs/assets/spectarr-overview.png)
+
+## Stop digging through instrument folders
+
+Mass spectrometry data tends to end up spread across acquisition PCs, network shares, processing folders, and personal naming systems. Spectarr gives a lab one place to answer the questions that should be easy:
+
+- Where is the original file for this run?
+- Which project and sample does it belong to?
+- Has it been converted to mzML or MGF?
+- What did the instrument actually record?
+- Can I trust the file and reproduce how a derivative was made?
+
+Spectarr stores source acquisitions as immutable, checksummed artifacts. It also creates a normal human-readable library, so existing search engines and analysis tools can keep working with ordinary files and folders.
+
+## What you can do
+
+### Organize projects and runs
+
+Browse from projects to experiments to individual runs. Search across the whole workspace, move inbox acquisitions into the right experiment, and keep source files, samples, processing history, and annotations together.
+
+### Inspect spectra without leaving the browser
+
+Filter large spectrum catalogs by scan, retention time, MS level, precursor, charge, peak count, and intensity. Select a row to view the spectrum and chromatogram without loading an entire run into the browser.
+
+![Indexed spectrum viewer showing a real Thermo RAW conversion](docs/assets/spectarr-spectrum-viewer.png)
+
+### Convert files reproducibly
+
+Generate mzML, mzXML, MGF, and MS2 with pinned ProteoWizard profiles. Every derivative records its source checksum, processing profile, tool version, parameters, and output checksum.
+
+### Collect data automatically
+
+Run the acquisition agent beside a Windows or Linux instrument computer. It waits for acquisitions to finish, treats vendor directories as a single unit, resumes interrupted uploads, and keeps an offline queue when the server is unavailable.
+
+### Automate the routine work
+
+Create rules that extract metadata or generate desired formats when a source arrives. Processing batches support previews, progress, cancellation, retry, and regeneration of reclaimed derivatives.
+
+### Connect other tools safely
+
+Use the REST API, signed webhooks, or the read-only MCP server to build search, reporting, and assistant workflows without giving those tools direct access to Spectarr's database.
+
+## One container, no database server
+
+Spectarr runs as one container with SQLite and filesystem storage. The dashboard, API, spectrum reader, metadata extractor, converter, webhook worker, and MCP server are packaged together.
+
+Your durable data lives in one directory:
+
+```text
+data/
+├── spectarr.db
+└── storage/
+    ├── objects/
+    └── library/
+```
+
+Back up that directory with the included online backup tool. Restore tests boot the backup as a separate Spectarr instance and verify both the database and artifact storage.
+
+## Quick start
+
+Spectarr targets Linux x86-64 and requires Docker with Compose. The server is designed to run on a workstation, lab server, or NAS with Docker support.
+
+1. Download `spectarr-0.1.0.tar.gz` from the [latest release](https://github.com/pgarrett-scripps/spectarr/releases/latest).
+2. Extract it into a new directory.
+3. Copy the environment template and set two generated secrets plus the absolute data path.
+
+```bash
+mkdir spectarr
+tar -xzf spectarr-0.1.0.tar.gz -C spectarr
+cd spectarr
+cp .env.example .env
+mkdir -p data imports
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+Put the generated values in `SPECTARR_SECRET_KEY` and `SPECTARR_WORKER_TOKEN`. Set `SPECTARR_DOCKER_DATA_ROOT` to the absolute path of the new `data` directory, then start Spectarr:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Open [http://localhost:3280](http://localhost:3280) and create the first administrator account.
+
+The GitHub release contains the Compose bundle and the signed Windows acquisition-agent installer. The bundle includes the configuration template, backup and restore tools, smoke fixture, and acquisition-agent wheel. See the [release installation guide](release/README.md) for reverse proxy, rootless Docker, and instrument-agent guidance.
+
+## Supported data
+
+Spectarr understands open formats directly and uses vendor readers or ProteoWizard where appropriate.
+
+| Data | Import | Metadata and spectra | Conversion |
+| --- | --- | --- | --- |
+| mzML and gzipped mzML | Yes | Native streaming reader | Yes |
+| mzXML | Yes | Native streaming reader | Yes |
+| MGF | Yes | Native streaming reader | Yes |
+| MS2 | Yes | Native streaming reader | Yes |
+| Thermo RAW | Yes | Direct reader or mzML derivative | Yes |
+| Bruker `.d` | Atomic directory import | Direct reader or mzML derivative | Yes |
+| Other ProteoWizard vendor formats | Yes | mzML derivative | Yes |
+
+Real-file acceptance currently covers Thermo RAW, a large vendor RAW fallback, an atomic Bruker `.d` acquisition, all four output formats, cancellation and retry, authenticated downloads, reclamation, and deterministic regeneration. See the [acceptance report](docs/acceptance-testing.md) for recorded checksums and spectrum counts.
+
+## A readable library for existing tools
+
+Spectarr keeps content-addressed source objects for integrity and a separate human-readable view for people and analysis software:
+
+```text
+library/
+└── plasma-proteomics__7fc2a010/
+    ├── raw/
+    │   └── patient-01__sample-a__31d62c18.raw
+    ├── mzml/
+    │   └── patient-01__sample-a__31d62c18.mzML
+    ├── mgf/
+    └── .spectarr/
+        └── runs/
+            └── 31d62c18-....json
+```
+
+On one filesystem, the readable files are hard links and do not consume duplicate space. Project and run manifests preserve stable identifiers and provenance for tools that scan the library directly.
+
+## Designed for real lab workflows
+
+- Immutable source acquisitions with SHA-256 verification
+- Resumable and idempotent instrument uploads
+- Atomic handling of native vendor directories
+- Project, experiment, sample, and multiplexed-run metadata
+- Automatic QC summaries, TIC and BPC previews, and spectrum catalogs
+- Revisioned conversion profiles and desired-output automation
+- Project SDRF generation, validation, TSV round trips, and repository export
+- Derived-file reclamation without losing provenance or regeneration history
+- Password authentication, scoped API keys, worker credentials, and signed webhooks
+- Online SQLite backup with independent restore verification
+
+## Project status
+
+Spectarr is preparing its first public release. The release candidate passes the complete single-container rehearsal, including concurrent ingestion, forced restart recovery, conversion, spectrum reads, MCP initialization, signed webhook delivery, browser interaction, backup, and independent restore boot.
+
+The most useful feedback now is from core facilities and research groups willing to try Spectarr with real acquisition patterns and vendor files. Please use [GitHub Issues](https://github.com/pgarrett-scripps/spectarr/issues) for bugs, workflow gaps, and format compatibility reports. Security concerns should follow [SECURITY.md](SECURITY.md).
+
+<details>
+<summary><strong>Architecture and development notes</strong></summary>
+
+### Runtime shape
 
 ```text
 Instrument folders -> Acquisition agent -> Resumable upload API
                                              |
-Dashboard + REST + MCP -> Spectarr API -> PostgreSQL + artifact storage
+Dashboard + REST + MCP -> Spectarr API -> SQLite + artifact storage
                                              |
                          +-------------------+------------------+
                          |                                      |
                   Metadata extractor                    MSConvert worker
                          |                                      |
-                  QC and TIC/BPC                         mzML, mzXML,
-                  summaries                             MGF, and MS2
+                  QC and spectra                         mzML, mzXML,
+                  catalogs                              MGF, and MS2
 ```
 
-Source files and vendor directory bundles are content-addressed and immutable. Spectarr also maintains an ordinary, human-readable filesystem library with the original filenames. Every derivative and extraction result records its source checksum, recipe, provider, version, and schema version.
+The single container supervises the API, dashboard, converter, extractor, webhook worker, spectrum reader, and MCP server. ProteoWizard conversion uses the configured Docker-compatible socket. A rootless Docker daemon is recommended for deployed systems.
 
-## Human-readable filesystem library
+### Source development
 
-External software can mount `data/storage/library` read-only and use files without the Spectarr dashboard or API. The default layout is:
-
-```text
-library/
-├── spectarr-library.json
-└── project-name__projectid/
-    ├── spectarr-project.json
-    ├── raw/
-    │   ├── run-name__sample-name__runid.raw
-    │   └── run-name__sample-name__runid.d/
-    ├── mzml/
-    │   └── run-name__sample-name__runid.mzML
-    ├── mzxml/
-    ├── mgf/
-    ├── ms2/
-    └── .spectarr/
-        └── runs/
-            └── run-uuid.json
-```
-
-Each project provides flat, format-specific directories that can be passed directly to a search engine. Experiments and samples remain in PostgreSQL and JSON manifests instead of adding filesystem depth. Short stable IDs prevent collisions while names keep the files understandable. Vendor acquisitions such as Bruker `.d` folders retain their original directory structure.
-
-The default filename template is `{run_name}__{sample_name}__{run_id:8}{extension}`. `SPECTARR_LIBRARY_PROJECT_TEMPLATE` and `SPECTARR_LIBRARY_FILENAME_TEMPLATE` support these tokens: `project_name`, `project_id`, `experiment_name`, `experiment_id`, `sample_name`, `sample_id`, `run_name`, `run_id`, `artifact_id`, `instrument_name`, `acquired_date`, `original_filename`, `original_stem`, `extension`, `format`, `role`, and `recipe_name`. A numeric suffix such as `:8` truncates a token to that length.
-
-On one filesystem, readable files are hard links to immutable objects and consume no extra space. Set `SPECTARR_LIBRARY_LINK_MODE=copy` when independent physical copies are required. `POST /api/v1/library/rebuild` reconstructs the complete readable view and its manifests.
-
-## Start the local stack
-
-Requirements:
-
-- Docker with Compose
-- The sibling `msconvert-cli` checkout at `../msconvert-cli`
-- Node.js 22 and Python 3.12 only when developing outside containers
-
-Create local configuration:
+Source builds use the sibling `msconvert-cli`, `mzmlpy`, and `spxtacular` repositories pinned in `DEPENDENCIES.env`. With those checkouts beside Spectarr:
 
 ```bash
 cp .env.example .env
-openssl rand -hex 32
-```
-
-Put the generated value in `SPECTARR_SECRET_KEY`. Replace the worker token and database password as well. Then start Spectarr:
-
-```bash
 make up
 ```
 
-Open `http://localhost:3280`. A new instance asks you to create the first administrator account. Existing pre-Alembic MVP databases are upgraded in place while preserving library data.
-
-Local endpoints:
-
-- Dashboard: `http://localhost:3280`
-- REST API: `http://localhost:8280`
-- OpenAPI: `http://localhost:8280/docs`
-- MCP: `http://localhost:8281/mcp`
-
-## Release distribution
-
-Tagged releases publish versioned API, dashboard, converter, extractor, webhook, and MCP images to GHCR. A GitHub release bundle contains the production Compose file, configuration template, acquisition-agent wheel, and SHA-256 checksum. Image builds publish SBOM and provenance metadata. See [release installation](release/README.md).
-
-Validate production configuration before deployment:
-
-```bash
-cp release/.env.example release/.env
-# Edit release/.env with generated secrets and the absolute data path.
-make release-check
-```
-
-Authentication is enabled by default. The local Compose MCP uses the worker credential for immediate read-only access. For networked MCP or Searcharr deployments, create a scoped API token in Settings, set `SPECTARR_API_KEY` in `.env`, then recreate the MCP container. The converter and extractor use the dedicated worker credential.
-
-For a trusted single-user installation, set `SPECTARR_AUTH_MODE=local`. The dashboard skips login and uses an automatically created administrator named by `SPECTARR_LOCAL_USER`. API tokens, instrument agents, and workers continue to authenticate normally. Compose binds all published ports to `127.0.0.1` by default. To expose no-login mode remotely, both `SPECTARR_BIND_ADDRESS=0.0.0.0` and `SPECTARR_ALLOW_REMOTE_NO_AUTH=true` are required. Remote no-login mode gives every network client full administrator access.
-
-Production mode refuses weak application or worker secrets, SQLite, the default PostgreSQL password, and wildcard CORS. Password login has persistent account throttling. Users can rotate their password from Settings, which revokes their other browser sessions. Browser session credentials use session storage and migrate away from persistent local storage. API responses include clickjacking, content-sniffing, referrer, permissions, and authentication-cache protections. Published ports remain loopback-only by default. The converter still needs a Docker-compatible execution service, so a rootless Docker daemon is strongly recommended for production.
-
-Instrument agents default to a backend-managed inbox. Spectarr creates one intake experiment per agent and marks its automatic uploads as needing assignment. The Inbox dashboard supports single and bulk moves into scientific experiments. Reassignment preserves canonical data, metadata, processing history, and audit records while rebuilding the human-readable library links under the destination project. An agent can instead target an existing experiment directly.
-
-## Automatic metadata and QC
-
-Every ready source artifact automatically queues a versioned metadata extraction job. Built-in bounded-memory parsers support mzML, gzipped mzML, mzXML, MGF, and MS2. Results include spectrum counts by MS level, polarity, centroid or profile mode, retention-time and m/z ranges, precursors, charge and collision-energy summaries, peak and intensity statistics, TIC and BPC previews, ion mobility, DIA windows, and parser warnings. The same streaming pass publishes a persistent spectrum catalog to PostgreSQL in bounded batches. Catalog activation is atomic, so an interrupted extraction never replaces the last complete catalog.
-
-OpenMassSpec is enabled by default for direct metadata extraction from supported vendor acquisitions. Set `SPECTARR_INSTALL_OPENMASSSPEC=false` before building if you want the smaller extractor image. Built-in parsers handle open formats, and MSConvert remains the conversion compatibility baseline when a vendor reader cannot parse an acquisition.
-
-See [extractor documentation](services/extractor/README.md).
-
-The run detail dashboard includes a table-led spectrum browser designed for runs with hundreds of thousands of spectra. Indexed filters cover scan, retention time, MS level, precursor m/z, neutral mass, charge, peak count, total intensity, base peak m/z, native ID, polarity, and representation. Sortable results use cursor pagination in pages of 50 rows. Selecting a row fetches only that spectrum's peak arrays through the private Spxtacular reader. Existing artifacts without a persistent catalog retain basic compatibility browsing and can queue a catalog build from the run page. The run page follows queued jobs through completion or failure, and recent catalog jobs also appear in Processing. Thermo RAW uses the .NET 8 runtime included in the reader image. Other unsupported vendor formats can use an mzML derivative.
-
-## Automatic instrument uploads
-
-The standalone acquisition agent runs on Windows or Linux beside an instrument computer or file server. It uses conservative polling, waits for stable completed acquisitions, treats native vendor directories atomically, rejects symlinks, blocks temporary and lock files, and keeps an offline SQLite queue. Uploads are resumable, checksummed, idempotent, and deduplicated.
-
-See [agent installation and service guidance](services/agent/README.md).
-
-## Automation and integrations
-
-Automation rules can be global, project-scoped, or instrument-scoped. Rules can request metadata extraction and reproducible conversion after a source becomes ready. The outbox supplies stable artifact events for Searcharr and signed webhooks. Webhook delivery happens in a separate retrying worker.
-
-Spectarr ships with revisioned Standard mzML and Standard MGF processing profiles. Standard mzML is selected by the default desired-output rule on a fresh installation. Additional profiles can use typed MSConvert settings or the Sage, Biosaur, BlitzFF, Casanovo, and Casanovo MGF named configs packaged by MSCLI. Each queued job snapshots its profile revision and parameters for reproducibility.
-
-Processing batches can target an entire project, selected experiments, or selected runs. Preview reports missing, current, outdated, already queued, and incompatible targets before any work is created. Missing-only, missing-and-outdated, and forced modes share the same idempotent conversion queue. The Processing dashboard provides aggregate progress, item errors, cancellation, and retry. Desired-output rules reconcile existing files when a policy or profile changes and reconcile Inbox files after project assignment.
-
-## SDRF and repository submission metadata
-
-Every project can own one revisioned SDRF v1.1.0 document. Spectarr preserves the table as ordered columns and rows, including repeated template and associated-file columns that cannot be represented safely as a JSON object. Imported rows map back to samples, runs, and primary artifacts. Runs support several labeled, pooled, or otherwise multiplexed samples through ordered sample links.
-
-The Metadata and SDRF project page supports generation from stored runs, lossless TSV import and export, table editing, official template selection, structural validation, optional ontology validation, and mapping diagnostics. Automatic generation uses extracted instrument and acquisition metadata where possible. Unknown biological facts remain explicit SDRF reserved values for a scientist to complete.
-
-The release API image includes the official `sdrf-pipelines` validator with ontology support. A valid project can export a repository package containing the SDRF TSV, human-readable source and derived filenames, per-file SHA-256 checksums, and a Spectarr provenance manifest. Directory acquisitions retain their native tree inside the package. Package construction uses temporary disk space approximately equal to the selected project data, so deployments should provide adequate space in the container temporary directory.
-
-SDRF REST endpoints live under `/api/v1/projects/{project_id}/sdrf`. MCP exposes the ordered document, repository readiness, confirmed generation, and confirmed validation without direct database access.
-
-## Deletion and storage reclamation
-
-Administrators can delete experiments from a project. The dashboard previews run, source, derivative, and logical byte counts, then requires the exact experiment name. Instrument inbox experiments, experiments targeted by active agents, and experiments with active jobs are protected from deletion.
-
-Administrators and operators can clear derived mzML, mzXML, MGF, and MS2 files by project from Storage. The preview reports reclaimable bytes and skips files used by active jobs. Reclamation never removes source acquisitions. Purged derivative records retain their checksum, parent, processing profile, job history, and extraction provenance, and the same processing profile can regenerate them later.
-
-MCP is read-only by default. Confirmed write tools can request extraction, conversion, annotation, retry, or automation changes only when `SPECTARR_MCP_ALLOW_WRITES=true`.
-
-## Backup and restore verification
-
-Create and verify a backup:
-
-```bash
-make backup BACKUP_DIR=/srv/spectarr-backups
-make verify-backup BACKUP_DIR=/srv/spectarr-backups/spectarr-YYYYMMDDTHHMMSSZ
-```
-
-Test restoration into a new directory and a separate PostgreSQL database:
-
-```bash
-make restore-test \
-  BACKUP_DIR=/srv/spectarr-backups/spectarr-YYYYMMDDTHHMMSSZ \
-  RESTORE_DIR=/srv/spectarr-restore-test \
-  RESTORE_DB=spectarr_restore_test
-```
-
-The restore test refuses an existing target directory or database. It never replaces the active instance.
-
-## Development and verification
+Run the complete component suite with:
 
 ```bash
 make test
 ```
 
-The test targets cover the API and migrations, dashboard behavior and builds, converter, metadata extractor, acquisition agent, webhook worker, and MCP contracts.
+Run the container release gate with:
 
-See [real-file acceptance testing](docs/acceptance-testing.md) for the fixture matrix and verified scientific summaries.
+```bash
+SPECTARR_RUN_E2E=true scripts/ci-integration.sh
+```
 
-## Searcharr boundary
+The current suite covers the API, migrations, dashboard, converter, metadata extractor, acquisition agent, webhook worker, MCP contracts, concurrent SQLite recovery, and the browser release workflow.
 
-Search services can consume versioned APIs, QC results, artifact events, signed webhooks, or the read-only human-readable library. They should keep their own indexes and reference immutable Spectarr artifact IDs and checksums. The `.spectarr/runs/{run-id}.json` manifests provide stable IDs and provenance when a search engine scans the filesystem directly. Search services should not share Spectarr database tables or modify the managed library.
+### Service endpoints
+
+- Dashboard: `http://localhost:3280`
+- REST API: `http://localhost:3280/api/v1`
+- OpenAPI: `http://localhost:3280/docs`
+- MCP: `http://localhost:8281/mcp`
+
+</details>
 
 ## License
 
-Spectarr is licensed under the Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Spectarr is available under the [Apache License 2.0](LICENSE).

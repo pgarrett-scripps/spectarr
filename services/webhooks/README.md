@@ -2,13 +2,13 @@
 
 This service delivers Spectarr outbox events to configured webhook destinations. It uses an atomic backend lease, signs the exact claimed body, and reports the result to the backend. Delivery is at least once. Receivers must use the delivery ID for idempotency.
 
-The worker uses only the Python standard library at runtime and runs as an unprivileged user in its container.
+The worker uses only the Python standard library at runtime and runs as an unprivileged process inside the Spectarr container.
 
 ## Delivery flow
 
 1. Poll pending and due retry deliveries.
 2. Claim one delivery with a worker ID. The backend grants a time-limited lease.
-3. Validate that the destination uses HTTPS, unless HTTP was explicitly enabled for local development.
+3. Validate that the destination uses HTTPS and resolves only to public addresses, unless either policy was explicitly relaxed for local development.
 4. Sign and POST the exact UTF-8 body returned by the claim API.
 5. Classify the response and report `delivered`, `retry`, or `failed` to the backend.
 
@@ -27,7 +27,7 @@ The worker ID is sent with claim and result requests in `X-Spectarr-Worker-Id`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SPECTARR_URL` | `http://api:8000` | Spectarr API base URL |
+| `SPECTARR_URL` | `http://127.0.0.1:8000` | Spectarr API base URL |
 | `SPECTARR_SERVICE_TOKEN` | none | Preferred scoped service bearer token |
 | `SPECTARR_WORKER_TOKEN` | none | Legacy worker token |
 | `SPECTARR_WORKER_ID` | hostname | Stable identity for lease ownership |
@@ -36,6 +36,7 @@ The worker ID is sent with claim and result requests in `X-Spectarr-Worker-Id`.
 | `SPECTARR_WEBHOOK_BATCH_SIZE` | `25` | Maximum candidates read per status, maximum 100 |
 | `SPECTARR_WEBHOOK_MAX_RESPONSE_BYTES` | `65536` | Bounded response read, maximum 1 MiB |
 | `SPECTARR_WEBHOOK_ALLOW_HTTP` | `false` | Permit plain HTTP destinations for local development |
+| `SPECTARR_WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `false` | Permit private, loopback, link-local, and reserved destination addresses for local development |
 
 Run locally:
 
@@ -49,16 +50,7 @@ spectarr-webhook-worker
 
 Process at most one ready delivery with `spectarr-webhook-worker --once`. Set logging with `--log-level DEBUG`.
 
-Run the container:
-
-```bash
-docker build -t spectarr-webhooks .
-docker run --rm \
-  -e SPECTARR_URL=http://api:8000 \
-  -e SPECTARR_SERVICE_TOKEN=replace-me \
-  -e SPECTARR_WORKER_ID=webhooks-1 \
-  spectarr-webhooks
-```
+The standard Spectarr image starts this worker automatically.
 
 ## Signature contract
 
@@ -101,7 +93,7 @@ Verify the signature before decoding JSON. Also reject stale timestamps and dedu
 - Network and timeout errors are retried.
 - Unsafe URLs and invalid claimed bodies are terminal failures.
 
-Redirects are never followed. Destination credentials, URL fragments, control characters, and schemes other than HTTPS are rejected. HTTP can only be enabled explicitly.
+Redirects are never followed. Destination credentials, URL fragments, control characters, non-public addresses, and schemes other than HTTPS are rejected. HTTP and private-network targets can only be enabled explicitly.
 
 ## Tests
 

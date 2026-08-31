@@ -149,4 +149,8 @@ def _levels(value: Any) -> str:
     levels = sorted({int(level) for level in value})
     if any(level < 1 or level > 10 for level in levels):
         raise ValueError("MS levels must be between 1 and 10")
-    return ",".join(map(str, levels))
+    if len(levels) == 1:
+        return str(levels[0])
+    if levels != list(range(levels[0], levels[-1] + 1)):
+        raise ValueError("MS levels must form a continuous range")
+    return f"{levels[0]}-{levels[-1]}"

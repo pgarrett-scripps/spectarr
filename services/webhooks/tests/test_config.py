@@ -21,11 +21,13 @@ class ConfigTests(unittest.TestCase):
             "SPECTARR_WORKER_TOKEN": "legacy",
             "SPECTARR_WORKER_ID": "hooks-01",
             "SPECTARR_WEBHOOK_ALLOW_HTTP": "true",
+            "SPECTARR_WEBHOOK_ALLOW_PRIVATE_NETWORKS": "true",
         }
         with patch.dict(os.environ, values, clear=True):
             config = WorkerConfig.from_environment()
         self.assertEqual(config.worker_token, "legacy")
         self.assertTrue(config.allow_http_destinations)
+        self.assertTrue(config.allow_private_networks)
 
 
 if __name__ == "__main__":

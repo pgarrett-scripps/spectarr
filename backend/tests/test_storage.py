@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import stat
 from io import BytesIO
 from pathlib import Path
 
 import pytest
-
 from spectarr.library import original_extension, render_template, safe_component
 from spectarr.storage import LocalArtifactStorage
+
+
+class BrokenStream(BytesIO):
+    def read(self, size: int = -1) -> bytes:
+        if self.tell() > 0:
+            raise OSError("source disappeared")
+        return super().read(4)
 
 
 def test_stream_deduplication(tmp_path: Path) -> None:
@@ -17,6 +24,13 @@ def test_stream_deduplication(tmp_path: Path) -> None:
     assert first == second
     assert storage.resolve(first.key).read_bytes() == b"same content"
     assert first.sha256 == hashlib.sha256(b"same content").hexdigest()
+
+
+def test_failed_stream_ingest_removes_staging_file(tmp_path: Path) -> None:
+    storage = LocalArtifactStorage(tmp_path)
+    with pytest.raises(OSError, match="source disappeared"):
+        storage.ingest_stream(BrokenStream(b"incomplete payload"))
+    assert list(storage.staging.iterdir()) == []
 
 
 def test_bundle_identity_preserves_source_directory_name(tmp_path: Path) -> None:
@@ -66,6 +80,27 @@ def test_materialized_bundle_preserves_vendor_directory(tmp_path: Path) -> None:
     readable = storage.resolve_library(key)
     assert (readable / "analysis.baf").read_bytes() == b"binary"
     assert (readable / "AcqData" / "method.xml").read_text() == "<method/>"
+
+
+def test_materialization_replaces_conflicting_destination_type(tmp_path: Path) -> None:
+    storage = LocalArtifactStorage(tmp_path / "storage")
+    file_object = storage.ingest_stream(BytesIO(b"file"))
+    bundle = tmp_path / "Acquisition.d"
+    bundle.mkdir()
+    (bundle / "data.bin").write_bytes(b"bundle")
+    bundle_object = storage.ingest_path(bundle)
+    key = "project/run/source/acquisition"
+
+    storage.materialize(bundle_object.key, key, bundle.name)
+    assert storage.resolve_library(key).is_dir()
+    storage.materialize(file_object.key, key, "source.raw")
+    assert storage.resolve_library(key).read_bytes() == b"file"
+    immutable_bundle_file = (
+        storage.resolve(bundle_object.key) / "payload" / bundle.name / "data.bin"
+    )
+    assert stat.S_IMODE(immutable_bundle_file.stat().st_mode) == 0o444
+    storage.materialize(bundle_object.key, key, bundle.name)
+    assert (storage.resolve_library(key) / "data.bin").read_bytes() == b"bundle"
 
 
 def test_library_naming_tokens_support_truncation_and_compound_extensions() -> None:

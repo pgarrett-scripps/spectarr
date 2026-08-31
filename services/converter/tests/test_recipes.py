@@ -21,6 +21,32 @@ class RecipeCompilerTests(unittest.TestCase):
         self.assertIn("msLevel 2", recipe.arguments)
         self.assertIn("--inten32", recipe.arguments)
 
+    def test_compiles_contiguous_peak_picking_levels_as_a_range(self) -> None:
+        recipe = compile_recipe(
+            {
+                "name": "search",
+                "converter": "msconvert",
+                "output_format": "MGF",
+                "parameters": {
+                    "filters": [{"kind": "peak_picking", "ms_levels": [1, 2]}],
+                },
+            }
+        )
+        self.assertIn("peakPicking vendor msLevel=1-2", recipe.arguments)
+
+    def test_rejects_noncontiguous_ms_level_ranges(self) -> None:
+        with self.assertRaisesRegex(ValueError, "continuous range"):
+            compile_recipe(
+                {
+                    "name": "search",
+                    "converter": "msconvert",
+                    "output_format": "MGF",
+                    "parameters": {
+                        "filters": [{"kind": "peak_picking", "ms_levels": [1, 3]}],
+                    },
+                }
+            )
+
     def test_supports_mzxml(self) -> None:
         recipe = compile_recipe(
             {"name": "legacy", "converter": "msconvert", "output_format": "mzXML", "parameters": {}}

@@ -161,6 +161,15 @@ class ProviderTests(unittest.TestCase):
             AvailableOpenMassSpec().supports(self.root / "sample.d", "vendor_directory")
         )
 
+    def test_openmassspec_leaves_open_formats_to_builtin_parsers(self) -> None:
+        class AvailableOpenMassSpec(OpenMassSpecProvider):
+            def is_available(self) -> bool:
+                return True
+
+        provider = AvailableOpenMassSpec()
+        self.assertFalse(provider.supports(self.root / "sample.mzML", "mzML"))
+        self.assertFalse(provider.supports(self.root / "sample.mgf", "MGF"))
+
 
 if __name__ == "__main__":
     unittest.main()

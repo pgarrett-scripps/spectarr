@@ -1,139 +1,44 @@
 name: spectarr
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-spectarr}
-      POSTGRES_USER: ${POSTGRES_USER:-spectarr}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    volumes:
-      - spectarr-postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spectarr} -d ${POSTGRES_DB:-spectarr}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  api:
-    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-api:${SPECTARR_VERSION:-latest}
-    user: "${SPECTARR_UID:-1000}:${SPECTARR_GID:-1000}"
+  spectarr:
+    image: ${SPECTARR_IMAGE:-ghcr.io/pgarrett-scripps/spectarr}:${SPECTARR_VERSION:-latest}
     environment:
       SPECTARR_ENVIRONMENT: production
-      SPECTARR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-spectarr}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-spectarr}
+      SPECTARR_DATABASE_URL: sqlite:////data/spectarr.db
       SPECTARR_STORAGE_ROOT: /data/storage
       SPECTARR_LIBRARY_ROOT: /data/storage/library
       SPECTARR_LIBRARY_LINK_MODE: ${SPECTARR_LIBRARY_LINK_MODE:-auto}
+      SPECTARR_LIBRARY_PROJECT_TEMPLATE: ${SPECTARR_LIBRARY_PROJECT_TEMPLATE:-{project_name}__{project_id:8}}
+      SPECTARR_LIBRARY_FILENAME_TEMPLATE: ${SPECTARR_LIBRARY_FILENAME_TEMPLATE:-{run_name}__{sample_name}__{run_id:8}{extension}}
       SPECTARR_IMPORT_ROOTS: '["/imports"]'
+      SPECTARR_CORS_ORIGINS: '[]'
       SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:?Set SPECTARR_WORKER_TOKEN in .env}
       SPECTARR_SECRET_KEY: ${SPECTARR_SECRET_KEY:?Set SPECTARR_SECRET_KEY in .env}
       SPECTARR_AUTH_MODE: ${SPECTARR_AUTH_MODE:-password}
       SPECTARR_LOCAL_USER: ${SPECTARR_LOCAL_USER:-admin}
       SPECTARR_BIND_ADDRESS: ${SPECTARR_BIND_ADDRESS:-127.0.0.1}
       SPECTARR_ALLOW_REMOTE_NO_AUTH: ${SPECTARR_ALLOW_REMOTE_NO_AUTH:-false}
-      SPECTARR_CORS_ORIGINS: ${SPECTARR_CORS_ORIGINS:-[]}
-      SPECTARR_SPECTRUM_READER_URL: http://spectrum-reader:8002
       SPECTARR_SPECTRUM_READER_TIMEOUT_SECONDS: ${SPECTARR_SPECTRUM_READER_TIMEOUT_SECONDS:-30}
+      SPECTARR_DOCKER_DATA_ROOT: ${SPECTARR_DOCKER_DATA_ROOT:?Set SPECTARR_DOCKER_DATA_ROOT to the absolute host data directory}
+      SPECTARR_MSCONVERT_IMAGE: ${SPECTARR_MSCONVERT_IMAGE:-proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:3.0.26121-ed8dc8a}
+      SPECTARR_MCP_ALLOW_WRITES: ${SPECTARR_MCP_ALLOW_WRITES:-false}
+      SPECTARR_API_KEY: ${SPECTARR_API_KEY:-}
+      SPECTARR_WEBHOOK_ALLOW_HTTP: ${SPECTARR_WEBHOOK_ALLOW_HTTP:-false}
+      SPECTARR_WEBHOOK_ALLOW_PRIVATE_NETWORKS: ${SPECTARR_WEBHOOK_ALLOW_PRIVATE_NETWORKS:-false}
+      SPECTARR_UID: ${SPECTARR_UID:-1000}
+      SPECTARR_GID: ${SPECTARR_GID:-1000}
     volumes:
       - ${SPECTARR_DATA_DIR:-./data}:/data
       - ${SPECTARR_IMPORT_DIR:-./imports}:/imports:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-      spectrum-reader:
-        condition: service_healthy
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    ports:
+      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_PORT:-3280}:8000"
+      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_MCP_PORT:-8281}:8001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request\nurllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 10
     restart: unless-stopped
-
-  converter:
-    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-converter:${SPECTARR_VERSION:-latest}
-    environment:
-      SPECTARR_API_URL: http://api:8000
-      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN}
-      SPECTARR_SOURCE_ROOTS: /data/storage
-      SPECTARR_LOCAL_STORAGE_ROOT: /data/storage
-      SPECTARR_SCRATCH_ROOT: /data/scratch
-      SPECTARR_HEARTBEAT_SECONDS: ${SPECTARR_CONVERTER_HEARTBEAT_SECONDS:-5}
-      SPECTARR_CONTAINER_DATA_ROOT: /data
-      SPECTARR_DOCKER_DATA_ROOT: ${SPECTARR_DOCKER_DATA_ROOT:?Set SPECTARR_DOCKER_DATA_ROOT to the absolute host data directory}
-      SPECTARR_MSCONVERT_IMAGE: ${SPECTARR_MSCONVERT_IMAGE:-proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:3.0.26121-ed8dc8a}
-    volumes:
-      - ${SPECTARR_DATA_DIR:-./data}:/data
-      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  extractor:
-    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-extractor:${SPECTARR_VERSION:-latest}
-    environment:
-      SPECTARR_API_URL: http://api:8000
-      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN}
-      SPECTARR_LOCAL_STORAGE_ROOT: /data/storage
-      SPECTARR_WORKER_ID: extractor-1
-    volumes:
-      - ${SPECTARR_DATA_DIR:-./data}/storage:/data/storage:ro
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  spectrum-reader:
-    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-extractor:${SPECTARR_VERSION:-latest}
-    entrypoint: ["spectarr-spectrum-server"]
-    environment:
-      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN}
-      SPECTARR_LOCAL_STORAGE_ROOT: /data/storage
-      SPECTARR_SPECTRUM_PORT: 8002
-    volumes:
-      - ${SPECTARR_DATA_DIR:-./data}/storage:/data/storage:ro
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request\nurllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  webhooks:
-    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-webhooks:${SPECTARR_VERSION:-latest}
-    environment:
-      SPECTARR_URL: http://api:8000
-      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN}
-      SPECTARR_WORKER_ID: webhooks-1
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  mcp:
-    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-mcp:${SPECTARR_VERSION:-latest}
-    environment:
-      SPECTARR_API_URL: http://api:8000
-      SPECTARR_MCP_TRANSPORT: http
-      SPECTARR_MCP_ALLOW_WRITES: ${SPECTARR_MCP_ALLOW_WRITES:-false}
-      SPECTARR_API_KEY: ${SPECTARR_API_KEY:-}
-      SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN}
-    ports:
-      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_MCP_PORT:-8281}:8001"
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  dashboard:
-    image: ${SPECTARR_IMAGE_PREFIX:-ghcr.io/pgarrett-scripps/spectarr}-dashboard:${SPECTARR_VERSION:-latest}
-    ports:
-      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_DASHBOARD_PORT:-3280}:80"
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-volumes:
-  spectarr-postgres:
+    stop_grace_period: 45s

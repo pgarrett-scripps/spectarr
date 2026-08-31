@@ -54,22 +54,27 @@ class LocalArtifactStorage:
     def ingest_stream(self, stream: BinaryIO) -> StoredObject:
         hasher = hashlib.sha256()
         byte_size = 0
-        with tempfile.NamedTemporaryFile(dir=self.staging, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-            while chunk := stream.read(8 * 1024 * 1024):
-                hasher.update(chunk)
-                byte_size += len(chunk)
-                temporary.write(chunk)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-        digest = hasher.hexdigest()
-        destination = self._object_path(digest)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
-            temporary_path.unlink()
-        else:
-            os.replace(temporary_path, destination)
-            destination.chmod(0o444)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.staging, delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+                while chunk := stream.read(8 * 1024 * 1024):
+                    hasher.update(chunk)
+                    byte_size += len(chunk)
+                    temporary.write(chunk)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            digest = hasher.hexdigest()
+            destination = self._object_path(digest)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                temporary_path.unlink()
+            else:
+                os.replace(temporary_path, destination)
+                destination.chmod(0o444)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
         return StoredObject(self._relative_key(destination), digest, byte_size)
 
     def ingest_path(self, source: Path) -> StoredObject:
@@ -112,19 +117,24 @@ class LocalArtifactStorage:
         destination = self.resolve_library(key)
         destination.parent.mkdir(parents=True, exist_ok=True)
         encoded = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False).encode() + b"\n"
-        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-            temporary.write(encoded)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-        os.replace(temporary_path, destination)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary.write(encoded)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, destination)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
         destination.chmod(0o444)
         return destination
 
     def remove_library_key(self, key: str) -> None:
         destination = self.resolve_library(key)
         if destination.is_dir():
-            shutil.rmtree(destination)
+            self._remove_tree(destination)
         else:
             destination.unlink(missing_ok=True)
         parent = destination.parent
@@ -143,7 +153,7 @@ class LocalArtifactStorage:
         if not destination.exists():
             return False
         if destination.is_dir():
-            shutil.rmtree(destination)
+            self._remove_tree(destination)
         else:
             destination.unlink()
         parent = destination.parent
@@ -158,7 +168,7 @@ class LocalArtifactStorage:
 
     def clear_library(self) -> None:
         if self.library.exists():
-            shutil.rmtree(self.library)
+            self._remove_tree(self.library)
         self.library.mkdir(parents=True, exist_ok=True)
 
     def check_writable(self) -> None:
@@ -229,7 +239,7 @@ class LocalArtifactStorage:
         if destination.exists():
             if destination.is_file() and os.path.samestat(source.stat(), destination.stat()):
                 return "hardlink"
-            destination.unlink()
+            self._remove_materialized_destination(destination)
         temporary = destination.parent / f".{destination.name}.{os.getpid()}.tmp"
         temporary.unlink(missing_ok=True)
         mode = self._link_or_copy(source, temporary)
@@ -253,7 +263,7 @@ class LocalArtifactStorage:
                 else:
                     raise ValueError(f"Unsupported bundle entry: {candidate}")
             if destination.exists():
-                shutil.rmtree(destination)
+                self._remove_materialized_destination(destination)
             os.replace(temporary, destination)
             for directory in [destination, *[path for path in destination.rglob("*") if path.is_dir()]]:
                 directory.chmod(0o555)
@@ -263,6 +273,21 @@ class LocalArtifactStorage:
             if temporary.exists():
                 shutil.rmtree(temporary)
         return "copy" if "copy" in modes else "hardlink"
+
+    @staticmethod
+    def _remove_materialized_destination(destination: Path) -> None:
+        if destination.is_dir():
+            LocalArtifactStorage._remove_tree(destination)
+        else:
+            destination.unlink()
+
+    @staticmethod
+    def _remove_tree(root: Path) -> None:
+        for path in root.rglob("*"):
+            if path.is_dir():
+                path.chmod(0o700)
+        root.chmod(0o700)
+        shutil.rmtree(root)
 
     def _link_or_copy(self, source: Path, destination: Path) -> str:
         if self.link_mode != "copy":

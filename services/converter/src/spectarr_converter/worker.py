@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import shutil
+import signal
 import socket
 import sys
 import threading
@@ -148,12 +149,14 @@ class ApiConversionWorker:
         worker_id: str | None = None,
         local_storage_root: Path | None = None,
         heartbeat_seconds: float = 60.0,
+        shutdown_event: threading.Event | None = None,
     ) -> None:
         self.api = api
         self.converter = converter
         self.worker_id = worker_id or socket.gethostname()
         self.local_storage_root = local_storage_root.resolve() if local_storage_root else None
         self.heartbeat_seconds = max(1.0, heartbeat_seconds)
+        self.shutdown_event = shutdown_event or threading.Event()
 
     def _convert_with_heartbeat(self, job_id: str, request_value: ConversionRequest) -> ConversionResult:
         stopped = threading.Event()
@@ -183,15 +186,24 @@ class ApiConversionWorker:
             last_progress = mapped
 
         heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+        shutdown_thread = threading.Thread(target=self._forward_shutdown, args=(stopped, cancelled), daemon=True)
         heartbeat_thread.start()
+        shutdown_thread.start()
         try:
             result = self.converter.convert_with_control(request_value, cancelled, report_progress)
         finally:
             stopped.set()
             heartbeat_thread.join(timeout=min(self.heartbeat_seconds, 5.0))
+            shutdown_thread.join(timeout=1.0)
         if heartbeat_errors and not cancelled.is_set():
             raise RuntimeError(f"Job heartbeat failed: {heartbeat_errors[0]}")
         return result
+
+    def _forward_shutdown(self, stopped: threading.Event, cancelled: threading.Event) -> None:
+        while not stopped.wait(0.1):
+            if self.shutdown_event.is_set():
+                cancelled.set()
+                return
 
     def _resolve_worker_source(self, location: dict[str, Any]) -> str:
         if self.local_storage_root is None:
@@ -205,7 +217,7 @@ class ApiConversionWorker:
         return str(source)
 
     def process_one(self) -> bool:
-        jobs = self.api.get("/api/v1/jobs", {"state": "queued", "kind": "convert", "limit": 20})
+        jobs = self.api.get("/api/v1/jobs", {"claimable": "true", "kind": "convert", "limit": 20})
         job = next((candidate for candidate in jobs if candidate.get("kind") == "convert"), None)
         if job is None:
             return False
@@ -289,6 +301,8 @@ class ApiConversionWorker:
             if result.scratch_path:
                 shutil.rmtree(result.scratch_path, ignore_errors=True)
         except Exception as conversion_error:
+            if self.shutdown_event.is_set():
+                return True
             current = self.api.get(f"/api/v1/jobs/{job_id}")
             if current.get("state") != "cancelled":
                 self.api.patch(
@@ -299,7 +313,7 @@ class ApiConversionWorker:
 
     def run_forever(self, poll_seconds: float = 3.0) -> None:
         consecutive_api_errors = 0
-        while True:
+        while not self.shutdown_event.is_set():
             try:
                 handled = self.process_one()
             except RuntimeError as worker_error:
@@ -322,7 +336,7 @@ class ApiConversionWorker:
                 print("Spectarr API connection restored", file=sys.stderr, flush=True)
                 consecutive_api_errors = 0
             if not handled:
-                time.sleep(poll_seconds)
+                self.shutdown_event.wait(poll_seconds)
 
 
 def main() -> int:
@@ -330,10 +344,17 @@ def main() -> int:
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=3.0)
     args = parser.parse_args()
+    shutdown_event = threading.Event()
+
+    def stop(_signal_number, _frame) -> None:
+        shutdown_event.set()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     roots = tuple(Path(value) for value in os.getenv("SPECTARR_SOURCE_ROOTS", "/data").split(os.pathsep))
     worker_id = os.getenv("SPECTARR_WORKER_ID") or socket.gethostname()
     api = HttpWorkerApi(
-        os.getenv("SPECTARR_API_URL", os.getenv("SPECTARR_URL", "http://api:8000")),
+        os.getenv("SPECTARR_API_URL", os.getenv("SPECTARR_URL", "http://127.0.0.1:8000")),
         os.getenv("SPECTARR_WORKER_TOKEN"),
         float(os.getenv("SPECTARR_API_TIMEOUT", "60")),
         worker_id,
@@ -350,6 +371,7 @@ def main() -> int:
         worker_id,
         Path(local_storage_value) if local_storage_value else None,
         float(os.getenv("SPECTARR_HEARTBEAT_SECONDS", "60")),
+        shutdown_event,
     )
     if args.once:
         worker.process_one()

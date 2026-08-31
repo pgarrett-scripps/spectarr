@@ -1,9 +1,9 @@
-import { AlertTriangle, CheckCircle2, Download, FileArchive, FileCheck2, FileUp, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronRight, Download, FileArchive, FileCheck2, FileUp, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, NavLink, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import { formatBytes } from '../components/Data'
-import { ApiErrorBanner, EmptyState, PageHeader, Panel } from '../components/Page'
+import { ApiErrorBanner, EmptyState, LoadingState, PageHeader, Panel } from '../components/Page'
 import type { Project, SdrfDocument, SdrfTemplate, SdrfValidationReport, SubmissionPreview } from '../types'
 
 const lines = (value: unknown): string => Array.isArray(value) ? value.join('\n') : ''
@@ -26,6 +26,7 @@ export function ProjectMetadata() {
   const [templates, setTemplates] = useState<SdrfTemplate[]>([])
   const [preview, setPreview] = useState<SubmissionPreview>()
   const [validation, setValidation] = useState<SdrfValidationReport>()
+  const [loading, setLoading] = useState(true)
   const [ontology, setOntology] = useState(false)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -36,6 +37,7 @@ export function ProjectMetadata() {
 
   const refreshPreview = useCallback(async () => setPreview(await api.submissionPreview(projectId)), [projectId])
   const load = useCallback(async () => {
+    setLoading(true)
     setError('')
     try {
       const [projectValue, templateValues, previewValue] = await Promise.all([
@@ -63,10 +65,17 @@ export function ProjectMetadata() {
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load project metadata')
+    } finally {
+      setLoading(false)
     }
   }, [projectId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    setProject(undefined)
+    setDocument(undefined)
+    setValidation(undefined)
+    void load()
+  }, [load])
 
   const perform = async (label: string, action: () => Promise<void>) => {
     setBusy(label)
@@ -198,11 +207,31 @@ export function ProjectMetadata() {
     saveBlob(await api.downloadSubmission(projectId), `${project?.name ?? 'project'}-repository-submission.zip`)
   })
 
+  if (loading && !project) return <>
+    <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>Loading metadata</span></nav>
+    <PageHeader eyebrow="Project metadata" title="Loading project metadata" description="Fetching project details, SDRF, and repository readiness." />
+    <nav className="section-tabs" aria-label="Project sections">
+      <NavLink to={`/projects/${projectId}/runs`}>Runs</NavLink>
+      <NavLink to={`/projects/${projectId}/metadata`} className="active">Metadata and SDRF</NavLink>
+    </nav>
+    <LoadingState label="Loading project metadata" />
+  </>
+
+  if (!project) return <>
+    <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>Metadata unavailable</span></nav>
+    <PageHeader eyebrow="Project metadata" title="Project metadata unavailable" description="Spectarr could not load this project or its repository metadata." />
+    {error && <ApiErrorBanner message={error} onRetry={() => void load()} />}
+  </>
+
   return <>
+    <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>{project?.name ?? 'Project'}</span></nav>
     <PageHeader eyebrow="Project metadata" title={project?.name ?? 'SDRF'} description="Edit repository-ready project metadata and the exact ordered SDRF table." actions={<>
-      <Link className="button button-secondary" to={`/runs?project=${projectId}`}>Back to project</Link>
       <button className="button button-primary" disabled={!project || Boolean(busy)} onClick={() => void saveProject()}><Save size={16} /> Save project</button>
     </>} />
+    <nav className="section-tabs" aria-label="Project sections">
+      <NavLink to={`/projects/${projectId}/runs`}>Runs</NavLink>
+      <NavLink to={`/projects/${projectId}/metadata`} className="active">Metadata and SDRF</NavLink>
+    </nav>
     {error && <ApiErrorBanner message={error} onRetry={() => void load()} />}
     {notice && <div className="message-banner metadata-success" role="status"><div><CheckCircle2 size={17} /><span>{notice}</span></div></div>}
 

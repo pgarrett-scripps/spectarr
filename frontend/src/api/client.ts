@@ -895,7 +895,7 @@ export const api = {
         body: JSON.stringify({ source_path: values.sourcePath, role: 'source' })
       })
     }
-    return run
+    return { ...run, projectId: project.id }
   },
   retryJob: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
   assignRuns: async (runIds: string[], experimentId: string) => normalizeList(await request<unknown[]>('/runs/bulk-assignment', {

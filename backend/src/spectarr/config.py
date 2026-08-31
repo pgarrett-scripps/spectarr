@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     login_lock_seconds: int = 900
     spectrum_reader_url: str | None = None
     spectrum_reader_timeout_seconds: float = 30.0
+    dashboard_root: Path | None = None
 
     @field_validator("storage_root", mode="before")
     @classmethod
@@ -53,6 +54,18 @@ class Settings(BaseSettings):
     @classmethod
     def expand_library_root(cls, value: str | Path | None) -> Path | None:
         return Path(value).expanduser() if value else None
+
+    @field_validator("dashboard_root", mode="before")
+    @classmethod
+    def expand_dashboard_root(cls, value: str | Path | None) -> Path | None:
+        return Path(value).expanduser() if value else None
+
+    @field_validator("database_url")
+    @classmethod
+    def require_sqlite(cls, value: str) -> str:
+        if not value.startswith("sqlite:///"):
+            raise ValueError("Spectarr supports SQLite database URLs only")
+        return value
 
     @field_validator("library_link_mode")
     @classmethod
@@ -101,6 +114,41 @@ class Settings(BaseSettings):
             raise ValueError(
                 "spectrum_reader_timeout_seconds must be greater than 0 and at most 300"
             )
+        return value
+
+    @field_validator("max_upload_bytes")
+    @classmethod
+    def validate_max_upload_bytes(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("max_upload_bytes must be positive")
+        return value
+
+    @field_validator("job_lease_seconds")
+    @classmethod
+    def validate_job_lease_seconds(cls, value: int) -> int:
+        if not 30 <= value <= 86400:
+            raise ValueError("job_lease_seconds must be between 30 and 86400")
+        return value
+
+    @field_validator("session_hours", "upload_session_hours")
+    @classmethod
+    def validate_session_hours(cls, value: int) -> int:
+        if not 1 <= value <= 8760:
+            raise ValueError("session durations must be between 1 and 8760 hours")
+        return value
+
+    @field_validator("login_max_attempts")
+    @classmethod
+    def validate_login_max_attempts(cls, value: int) -> int:
+        if not 1 <= value <= 100:
+            raise ValueError("login_max_attempts must be between 1 and 100")
+        return value
+
+    @field_validator("login_window_seconds", "login_lock_seconds")
+    @classmethod
+    def validate_login_intervals(cls, value: int) -> int:
+        if not 1 <= value <= 86400:
+            raise ValueError("login intervals must be between 1 and 86400 seconds")
         return value
 
     @field_validator("local_user")
@@ -155,10 +203,6 @@ class Settings(BaseSettings):
             raise ValueError(
                 "production requires a unique SPECTARR_WORKER_TOKEN of at least 32 characters"
             )
-        if self.database_url.startswith("sqlite"):
-            raise ValueError("production requires PostgreSQL")
-        if "spectarr:spectarr@" in self.database_url:
-            raise ValueError("production cannot use the default PostgreSQL password")
         if "*" in self.cors_origins:
             raise ValueError("production CORS origins cannot contain a wildcard")
         return self

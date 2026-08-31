@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from typing import Any
@@ -37,9 +38,11 @@ class FakeApi:
         self.source = source
         self.patches: list[dict[str, Any]] = []
         self.current_state = "running"
+        self.job_query = None
 
     def get(self, path: str, query=None):
         if path == "/api/v1/jobs":
+            self.job_query = query
             return [{"id": "job-1", "kind": "convert"}]
         if path == "/api/v1/jobs/job-1":
             return {"id": "job-1", "state": self.current_state}
@@ -95,6 +98,7 @@ class WorkerTests(unittest.TestCase):
             api = FakeApi(source)
             worker = ApiConversionWorker(api, FakeConverter(output))
             self.assertTrue(worker.process_one())
+            self.assertEqual(api.job_query, {"claimable": "true", "kind": "convert", "limit": 20})
             self.assertEqual(api.upload[0], "/api/v1/runs/run-1/artifacts/upload")
             self.assertEqual(api.upload[2]["parent_artifact_id"], "artifact-1")
             self.assertEqual(api.upload[2]["expected_sha256"], "a" * 64)
@@ -166,6 +170,14 @@ class WorkerTests(unittest.TestCase):
         worker.process_one = Mock(side_effect=RuntimeError("invalid worker token"))
         with self.assertRaisesRegex(RuntimeError, "invalid worker token"):
             worker.run_forever(0.5)
+
+    def test_run_forever_stops_before_claiming_when_shutdown_is_requested(self) -> None:
+        shutdown_event = threading.Event()
+        shutdown_event.set()
+        worker = ApiConversionWorker(Mock(), Mock(), shutdown_event=shutdown_event)
+        worker.process_one = Mock()
+        worker.run_forever(0.5)
+        worker.process_one.assert_not_called()
 
 
 if __name__ == "__main__":

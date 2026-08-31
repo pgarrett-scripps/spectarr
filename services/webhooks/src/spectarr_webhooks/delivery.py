@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
+import socket
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
+from typing import ClassVar
 from urllib import error, parse, request
 
 from .api import ClaimedDelivery
@@ -33,7 +36,9 @@ class NoRedirectHandler(request.HTTPRedirectHandler):
 class WebhookSender:
     """Transmit a claimed body exactly once during the current lease."""
 
-    SAFE_CLAIM_HEADERS = {"content-type", "x-spectarr-event", "x-spectarr-delivery"}
+    SAFE_CLAIM_HEADERS: ClassVar[frozenset[str]] = frozenset(
+        {"content-type", "x-spectarr-event", "x-spectarr-delivery"}
+    )
 
     def __init__(
         self,
@@ -41,16 +46,25 @@ class WebhookSender:
         timeout_seconds: float = 15.0,
         max_response_bytes: int = 64 * 1024,
         allow_http: bool = False,
+        allow_private_networks: bool = False,
         opener: Callable | None = None,
+        resolver: Callable = socket.getaddrinfo,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_response_bytes = max_response_bytes
         self.allow_http = allow_http
+        self.allow_private_networks = allow_private_networks
         self.opener = opener or request.build_opener(NoRedirectHandler()).open
+        self.resolver = resolver
 
     def send(self, delivery: ClaimedDelivery, timestamp: int) -> DeliveryOutcome:
         try:
-            validate_destination(delivery.url, self.allow_http)
+            validate_destination(
+                delivery.url,
+                self.allow_http,
+                self.allow_private_networks,
+                self.resolver,
+            )
             body = delivery.body.encode("utf-8")
             json.loads(body)
             headers = self._headers(delivery, timestamp, body)
@@ -86,7 +100,12 @@ class WebhookSender:
         return headers
 
 
-def validate_destination(url: str, allow_http: bool) -> None:
+def validate_destination(
+    url: str,
+    allow_http: bool,
+    allow_private_networks: bool = False,
+    resolver: Callable = socket.getaddrinfo,
+) -> None:
     if not url or any(character in url for character in ("\r", "\n", "\x00")):
         raise UnsafeDestination("Webhook URL contains invalid characters")
     parsed = parse.urlsplit(url)
@@ -106,6 +125,29 @@ def validate_destination(url: str, allow_http: bool) -> None:
         raise UnsafeDestination("Webhook URL contains an invalid port") from invalid_port
     if port is not None and not 1 <= port <= 65535:
         raise UnsafeDestination("Webhook URL contains an invalid port")
+    if allow_private_networks:
+        return
+    addresses = {
+        str(sockaddr[0]).partition("%")[0]
+        for _family, _kind, _protocol, _canonical, sockaddr in resolver(
+            parsed.hostname,
+            port or (443 if parsed.scheme.casefold() == "https" else 80),
+            type=socket.SOCK_STREAM,
+        )
+    }
+    if not addresses:
+        raise OSError("Webhook hostname did not resolve to an address")
+    for address in addresses:
+        try:
+            destination = ipaddress.ip_address(address)
+        except ValueError as invalid_address:
+            raise UnsafeDestination(
+                "Webhook hostname resolved to an invalid address"
+            ) from invalid_address
+        if not destination.is_global or destination.is_multicast:
+            raise UnsafeDestination(
+                "Webhook destinations on private, loopback, link-local, or reserved networks are blocked"
+            )
 
 
 def signature_header(secret: str, timestamp: int, body: bytes) -> str:

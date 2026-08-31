@@ -21,6 +21,6 @@ fi
   sha256sum --check SHA256SUMS
   tar --list --file storage.tar > /dev/null
 )
-"${compose[@]}" exec -T postgres pg_restore --list < "$backup_dir/database.dump" > /dev/null
+"${compose[@]}" exec -T spectarr spectarr-backup verify < "$backup_dir/database.sqlite3" > /dev/null
 
 echo "Backup verified: $backup_dir"

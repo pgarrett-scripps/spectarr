@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from . import __version__
 from .api import router
@@ -75,3 +76,16 @@ app.include_router(platform_router, prefix=settings.api_prefix, dependencies=[De
 @app.get("/health", include_in_schema=False)
 async def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
+
+
+if settings.dashboard_root and settings.dashboard_root.is_dir():
+    dashboard_root = settings.dashboard_root.resolve()
+
+    @app.get("/{dashboard_path:path}", include_in_schema=False)
+    async def dashboard(dashboard_path: str) -> FileResponse:
+        if dashboard_path == "api" or dashboard_path.startswith("api/"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+        requested = (dashboard_root / dashboard_path).resolve()
+        if requested.is_relative_to(dashboard_root) and requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(dashboard_root / "index.html")

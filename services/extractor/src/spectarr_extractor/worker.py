@@ -265,7 +265,7 @@ class MetadataExtractionWorker:
     def process_one(self) -> bool:
         jobs = self.api.get(
             "/api/v1/jobs",
-            {"state": "queued", "kind": "extract_metadata", "limit": 20},
+            {"claimable": "true", "kind": "extract_metadata", "limit": 20},
         )
         job = next((value for value in jobs if value.get("kind") == "extract_metadata"), None)
         if job is None:
@@ -377,7 +377,7 @@ def main() -> int:
     args = parser.parse_args()
     worker_id = os.getenv("SPECTARR_WORKER_ID", f"extractor-{socket.gethostname()}")
     api = HttpWorkerApi(
-        os.getenv("SPECTARR_API_URL", "http://api:8000"),
+        os.getenv("SPECTARR_API_URL", "http://127.0.0.1:8000"),
         worker_id,
         os.getenv("SPECTARR_SERVICE_TOKEN") or os.getenv("SPECTARR_API_KEY"),
         os.getenv("SPECTARR_WORKER_TOKEN"),

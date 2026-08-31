@@ -4,8 +4,6 @@ set -euo pipefail
 backup_parent=${1:?Usage: scripts/backup.sh BACKUP_PARENT}
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_dir="${backup_parent%/}/spectarr-${timestamp}"
-postgres_user=${POSTGRES_USER:-spectarr}
-postgres_database=${POSTGRES_DB:-spectarr}
 data_dir=${SPECTARR_DATA_DIR:-data}
 compose=(docker compose)
 if [[ -n ${SPECTARR_COMPOSE_PROJECT_NAME:-} ]]
@@ -28,11 +26,11 @@ then
 fi
 
 mkdir -p "$backup_dir"
-"${compose[@]}" exec -T postgres pg_dump --username "$postgres_user" --dbname "$postgres_database" --format custom > "$backup_dir/database.dump"
+"${compose[@]}" exec -T spectarr spectarr-backup create /data/spectarr.db > "$backup_dir/database.sqlite3"
 tar --create --file "$backup_dir/storage.tar" --directory "$data_dir" storage
 (
   cd "$backup_dir"
-  sha256sum database.dump storage.tar > SHA256SUMS
+  sha256sum database.sqlite3 storage.tar > SHA256SUMS
 )
 
 echo "$backup_dir"

@@ -9,6 +9,7 @@ import re
 import shutil
 import threading
 import time
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,6 +86,7 @@ class MsconvertCliRunner:
             ) from error
 
         converter = SimplePWizConverter(docker_image=image)
+        container_name = f"spectarr-msconvert-{uuid.uuid4().hex}"
         aliases = {source.resolve(): source_name} if source_name else None
         command = converter.build_docker_command(
             [source],
@@ -93,10 +95,17 @@ class MsconvertCliRunner:
             recipe.config_path,
             input_names=aliases,
             read_only_inputs=True,
+            container_name=container_name,
         )
         command = self._map_docker_mount_sources(command)
         command = self._make_input_mounts_read_only(command)
-        completed = converter.execute_command(command, output_dir, cancel_event, progress)
+        completed = converter.execute_command(
+            command,
+            output_dir,
+            cancel_event,
+            progress,
+            container_name=container_name,
+        )
         return ProcessReport(
             completed.return_code,
             completed.stdout,
@@ -214,7 +223,11 @@ class ConversionService:
             if report.cancelled:
                 raise RuntimeError("Conversion was cancelled")
             if report.return_code != 0:
-                raise RuntimeError(f"msconvert exited with status {report.return_code}")
+                detail = report.stderr.strip() or report.stdout.strip()
+                message = f"msconvert exited with status {report.return_code}"
+                if detail:
+                    message = f"{message}: {detail[-4000:]}"
+                raise RuntimeError(message)
             if progress:
                 progress("validating", 0.9)
             outputs = self._discover_and_validate(output_dir, recipe.output_format, progress)

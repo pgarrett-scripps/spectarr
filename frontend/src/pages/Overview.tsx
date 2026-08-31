@@ -4,12 +4,13 @@ import { api } from '../api/client'
 import { useResource } from '../api/useResource'
 import { formatBytes, formatRelativeDate, JobStatusBadge, ProgressBar, RunStatusBadge } from '../components/Data'
 import { ApiErrorBanner, PageHeader, Panel } from '../components/Page'
+import { runPath } from '../navigation'
 import type { OverviewData } from '../types'
 
 export function Overview() {
   const resource = useResource<OverviewData | null>(api.overview, null)
   if (!resource.data) return <>
-    <PageHeader eyebrow="Library overview" title="Spectarr overview" description="Live library and processing status from the Spectarr API." actions={<Link className="button button-primary" to="/runs/import"><Plus size={16} /> Import data</Link>} />
+    <PageHeader eyebrow="Workspace overview" title="Spectarr overview" description="Live project and processing status from the Spectarr API." actions={<Link className="button button-primary" to="/runs/import"><Plus size={16} /> Import data</Link>} />
     {resource.error && <ApiErrorBanner message={resource.error} onRetry={resource.refresh} />}
   </>
   const { data } = resource
@@ -23,9 +24,9 @@ export function Overview() {
   return (
     <>
       <PageHeader
-        eyebrow="Library overview"
+        eyebrow="Workspace overview"
         title="Spectarr overview"
-        description="Live library and processing status from the Spectarr API."
+        description="Live project and processing status from the Spectarr API."
         actions={<Link className="button button-primary" to="/runs/import"><Plus size={16} /> Import data</Link>}
       />
       {resource.error && <ApiErrorBanner message={resource.error} onRetry={resource.refresh} />}
@@ -38,10 +39,10 @@ export function Overview() {
       </div>
 
       <div className="overview-grid">
-        <Panel title="Recent runs" subtitle="Latest data added to your library" actions={<Link className="text-link" to="/runs">View all <ArrowRight size={14} /></Link>}>
+        <Panel title="Recent runs" subtitle="Latest data added across your projects" actions={<Link className="text-link" to="/projects">Projects <ArrowRight size={14} /></Link>}>
           <div className="run-list">
             {data.runs.slice(0, 4).map(run => (
-              <Link className="run-list-item" to={`/runs/${run.id}`} key={run.id}>
+              <Link className="run-list-item" to={runPath(run)} key={run.id}>
                 <div className="file-glyph">{run.sourceFormat}</div>
                 <div className="run-list-primary"><strong>{run.name}</strong><span>{run.projectName} · {run.instrument}</span></div>
                 <div className="run-list-size"><strong>{formatBytes(run.sizeBytes)}</strong><span>{formatRelativeDate(run.importedAt)}</span></div>
@@ -80,7 +81,7 @@ export function Overview() {
             })}
           </div>
         </Panel>
-        <Panel title="Library mix" subtitle="Source formats across all runs">
+        <Panel title="Format mix" subtitle="Source formats across all runs">
           <div className="donut-layout">
             <div className="donut"><span><strong>{formatTotal}</strong>artifacts</span></div>
             <div className="legend">

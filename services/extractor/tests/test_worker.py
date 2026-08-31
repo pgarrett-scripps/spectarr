@@ -38,9 +38,11 @@ class FakeApi:
         self.relative_path = relative_path
         self.posts: list[tuple[str, Any]] = []
         self.patches: list[tuple[str, Any]] = []
+        self.job_query = None
 
     def get(self, path: str, query=None):
         if path == "/api/v1/jobs":
+            self.job_query = query
             return [{"id": "job-1", "kind": "extract_metadata"}]
         if path.endswith("/location"):
             return {"relative_path": self.relative_path, "filename": "sample.mzML"}
@@ -71,6 +73,10 @@ class WorkerTests(unittest.TestCase):
             api = FakeApi("objects/sample")
             worker = MetadataExtractionWorker(api, FakeProviders(), root, heartbeat_seconds=60)
             self.assertTrue(worker.process_one())
+            self.assertEqual(
+                api.job_query,
+                {"claimable": "true", "kind": "extract_metadata", "limit": 20},
+            )
             result_post = next(value for value in api.posts if value[0].endswith("/extraction-results"))
             self.assertEqual(result_post[1]["schema_version"], "1.0")
             self.assertEqual(result_post[1]["extractor"], "test-parser")
