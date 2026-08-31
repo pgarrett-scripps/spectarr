@@ -79,7 +79,7 @@ jobs:
           echo "image=${REGISTRY}/${owner}/spectarr" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
