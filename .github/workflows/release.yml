@@ -79,7 +79,7 @@ jobs:
           echo "image=${REGISTRY}/${owner}/spectarr" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -96,7 +96,7 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
-      - uses: actions/attest-build-provenance@v3
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.names.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -253,7 +253,7 @@ jobs:
         with:
           name: spectarr-windows-agent
           path: release
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           generate_release_notes: true
