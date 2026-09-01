@@ -44,7 +44,7 @@
                         Remove="uninstall"
                         Wait="yes" />
       </Component>
-      <Component Id="ManagementScriptsComponent" Guid="*" Win64="yes">
+      <Component Id="ManagementScriptsComponent" Guid="7003334E-A773-4B24-96A8-413ADF873046" Win64="yes">
         <File Id="ConfigureScript" Source="Configure-Agent.ps1" KeyPath="yes" />
         <File Id="InstallServiceScript" Source="Install-Service.ps1" />
         <File Id="UpgradeScript" Source="Upgrade-Agent.ps1" />
