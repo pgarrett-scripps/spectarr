@@ -2,14 +2,16 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$MsiPath,
-    [switch]$AllowUnsigned
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern("^[A-Fa-f0-9]{64}$")]
+    [string]$ExpectedSha256
 )
 
 $ErrorActionPreference = "Stop"
 $ResolvedMsi = (Resolve-Path -LiteralPath $MsiPath).Path
-$Signature = Get-AuthenticodeSignature -FilePath $ResolvedMsi
-if (-not $AllowUnsigned -and $Signature.Status -ne "Valid") {
-    throw "The installer signature is $($Signature.Status). Refusing to upgrade"
+$ActualSha256 = (Get-FileHash -LiteralPath $ResolvedMsi -Algorithm SHA256).Hash
+if ($ActualSha256 -ne $ExpectedSha256) {
+    throw "The installer SHA-256 checksum does not match the expected release checksum"
 }
 
 $Process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" -ArgumentList "/i", "`"$ResolvedMsi`"", "/passive", "/norestart" -Verb RunAs -Wait -PassThru

@@ -140,9 +140,6 @@ jobs:
   windows-agent:
     needs: validate
     runs-on: windows-latest
-    env:
-      SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
-      SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -172,22 +169,6 @@ jobs:
         run: |
           python -m PyInstaller --clean --noconfirm --onefile --name spectarr-agent --paths services/agent/src --distpath services/agent/windows/dist --workpath services/agent/windows/build services/agent/windows/entrypoint.py
           services/agent/windows/dist/spectarr-agent.exe --version
-      - name: Require signing credentials after the initial demo release
-        shell: pwsh
-        run: |
-          $isTaggedRelease = $env:GITHUB_REF -like "refs/tags/*"
-          $isUnsignedDemo = $env:GITHUB_REF -eq "refs/tags/v0.1.0"
-          if ($isTaggedRelease -and -not $isUnsignedDemo -and -not $env:SIGNING_CERTIFICATE_BASE64) {
-            throw "Tagged releases after v0.1.0 require WINDOWS_SIGNING_CERTIFICATE_BASE64"
-          }
-          if ($isTaggedRelease -and -not $isUnsignedDemo -and -not $env:SIGNING_CERTIFICATE_PASSWORD) {
-            throw "Tagged releases after v0.1.0 require WINDOWS_SIGNING_CERTIFICATE_PASSWORD"
-          }
-      - name: Sign agent executable
-        if: env.SIGNING_CERTIFICATE_BASE64 != ''
-        shell: pwsh
-        run: |
-          services/agent/windows/Sign-Artifact.ps1 -Path services/agent/windows/dist/spectarr-agent.exe -CertificateBase64 $env:SIGNING_CERTIFICATE_BASE64 -CertificatePassword $env:SIGNING_CERTIFICATE_PASSWORD
       - name: Build Windows installer
         shell: pwsh
         run: |
@@ -203,12 +184,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "WiX linking failed"
           }
-      - name: Sign Windows installer
-        if: env.SIGNING_CERTIFICATE_BASE64 != ''
-        shell: pwsh
-        run: |
-          $version = (Get-Content VERSION -Raw).Trim()
-          services/agent/windows/Sign-Artifact.ps1 -Path "services/agent/windows/output/spectarr-agent-$version-windows-x64.msi" -CertificateBase64 $env:SIGNING_CERTIFICATE_BASE64 -CertificatePassword $env:SIGNING_CERTIFICATE_PASSWORD
       - name: Test Windows installer
         shell: pwsh
         run: |
@@ -281,6 +256,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           generate_release_notes: true
+          body: |
+            Windows note: The acquisition-agent installer is unsigned. Windows may display an unknown-publisher warning during installation.
           files: |
             release/compose.yaml
             release/spectarr-*.tar.gz

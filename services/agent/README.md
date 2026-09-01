@@ -27,11 +27,11 @@ Keep the state database on a local disk. SQLite locking is not reliable on every
 
 ## Install on Windows
 
-Download `spectarr-agent-<version>-windows-x64.msi` from the Spectarr release. The initial demo installer is unsigned, so Windows may display an unknown-publisher warning. Install it, then open **Configure Spectarr Agent** from the Start menu. Enter the server URL, acquisition folder, agent ID, and one-time token from the Instrument agents dashboard.
+Download `spectarr-agent-<version>-windows-x64.msi` from the Spectarr release. The installer is unsigned, so Windows may display an unknown-publisher warning. Install it, then open **Configure Spectarr Agent** from the Start menu. Enter the server URL, acquisition folder, agent ID, and one-time token from the Instrument agents dashboard.
 
 The installer registers `SpectarrAgent` with the Windows Service Control Manager. Configuration, queue state, and rotating logs are stored under `C:\ProgramData\Spectarr Agent`. The service runs as `LocalService`. Grant `NT AUTHORITY\LOCAL SERVICE` read access to each acquisition folder.
 
-Run the installed `Upgrade-Agent.ps1` with the new MSI path to upgrade without replacing the configuration or queue. The script verifies the installer signature and restarts the service. Remove the application through Windows Installed apps. Uninstall preserves the configuration, logs, and queue by default.
+Run the installed `Upgrade-Agent.ps1` with the new MSI path to upgrade without replacing the configuration or queue. Pass the release checksum with `-ExpectedSha256` so the script can verify the download before installing it. Remove the application through Windows Installed apps. Uninstall preserves the configuration, logs, and queue by default.
 
 After rotating a token in the dashboard, run **Configure Spectarr Agent** again with the new token. The configured credential replaces the saved credential when the service restarts.
 

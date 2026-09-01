@@ -13,7 +13,7 @@ All notable changes to Spectarr will be documented in this file. Releases follow
 - Release-readiness validation, clean-room rehearsal tooling, and production smoke coverage
 - Public conversion-library contracts for reproducible ProteoWizard execution
 - Security reporting and release governance documentation
-- Signed Windows acquisition-agent MSI packaging with native service registration, rotating logs, and lifecycle scripts
+- Unsigned Windows acquisition-agent MSI packaging with native service registration, rotating logs, and lifecycle scripts
 - Dashboard controls for agent disablement and one-time token rotation
 - Concurrent SQLite restart soak testing and reusable real-vendor acceptance tooling
 
