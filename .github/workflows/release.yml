@@ -171,14 +171,16 @@ jobs:
         run: |
           python -m PyInstaller --clean --noconfirm --onefile --name spectarr-agent --paths services/agent/src --distpath services/agent/windows/dist --workpath services/agent/windows/build services/agent/windows/entrypoint.py
           services/agent/windows/dist/spectarr-agent.exe --version
-      - name: Require signing credentials for tagged releases
+      - name: Require signing credentials after the initial demo release
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF -like "refs/tags/*" -and -not $env:SIGNING_CERTIFICATE_BASE64) {
-            throw "Tagged releases require WINDOWS_SIGNING_CERTIFICATE_BASE64"
+          $isTaggedRelease = $env:GITHUB_REF -like "refs/tags/*"
+          $isUnsignedDemo = $env:GITHUB_REF -eq "refs/tags/v0.1.0"
+          if ($isTaggedRelease -and -not $isUnsignedDemo -and -not $env:SIGNING_CERTIFICATE_BASE64) {
+            throw "Tagged releases after v0.1.0 require WINDOWS_SIGNING_CERTIFICATE_BASE64"
           }
-          if ($env:GITHUB_REF -like "refs/tags/*" -and -not $env:SIGNING_CERTIFICATE_PASSWORD) {
-            throw "Tagged releases require WINDOWS_SIGNING_CERTIFICATE_PASSWORD"
+          if ($isTaggedRelease -and -not $isUnsignedDemo -and -not $env:SIGNING_CERTIFICATE_PASSWORD) {
+            throw "Tagged releases after v0.1.0 require WINDOWS_SIGNING_CERTIFICATE_PASSWORD"
           }
       - name: Sign agent executable
         if: env.SIGNING_CERTIFICATE_BASE64 != ''
@@ -206,6 +208,28 @@ jobs:
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
           services/agent/windows/Sign-Artifact.ps1 -Path "services/agent/windows/output/spectarr-agent-$version-windows-x64.msi" -CertificateBase64 $env:SIGNING_CERTIFICATE_BASE64 -CertificatePassword $env:SIGNING_CERTIFICATE_PASSWORD
+      - name: Test Windows installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $installer = (Resolve-Path "services/agent/windows/output/spectarr-agent-$version-windows-x64.msi").Path
+          $install = Start-Process msiexec.exe -ArgumentList @("/i", "`"$installer`"", "/qn", "/norestart") -Wait -PassThru
+          if ($install.ExitCode -notin @(0, 3010)) {
+            throw "MSI installation failed with exit code $($install.ExitCode)"
+          }
+          $installedAgent = Join-Path $env:ProgramFiles "Spectarr Agent\spectarr-agent.exe"
+          if (-not (Test-Path -LiteralPath $installedAgent)) {
+            throw "Installed agent executable was not found"
+          }
+          Get-Service -Name SpectarrAgent -ErrorAction Stop | Out-Null
+          & $installedAgent --version
+          $uninstall = Start-Process msiexec.exe -ArgumentList @("/x", "`"$installer`"", "/qn", "/norestart") -Wait -PassThru
+          if ($uninstall.ExitCode -notin @(0, 3010)) {
+            throw "MSI uninstallation failed with exit code $($uninstall.ExitCode)"
+          }
+          if (Get-Service -Name SpectarrAgent -ErrorAction SilentlyContinue) {
+            throw "SpectarrAgent service remained after uninstall"
+          }
       - name: Create installer checksum
         shell: pwsh
         run: |
@@ -256,6 +280,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           generate_release_notes: true
+          body: |
+            Windows note: The 0.1.0 acquisition-agent installer is intentionally unsigned for this demo release. Windows may display an unknown-publisher warning during installation.
           files: |
             release/spectarr-*.tar.gz
             release/spectarr-*.sha256

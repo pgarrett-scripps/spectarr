@@ -94,7 +94,7 @@ docker compose up -d
 
 Open [http://localhost:3280](http://localhost:3280) and create the first administrator account.
 
-The GitHub release contains the Compose bundle and the signed Windows acquisition-agent installer. The bundle includes the configuration template, backup and restore tools, smoke fixture, and acquisition-agent wheel. See the [release installation guide](release/README.md) for reverse proxy, rootless Docker, and instrument-agent guidance.
+The GitHub release contains the Compose bundle and the Windows acquisition-agent installer. The initial demo installer is unsigned, so Windows may display an unknown-publisher warning. The bundle includes the configuration template, backup and restore tools, smoke fixture, and acquisition-agent wheel. See the [release installation guide](release/README.md) for reverse proxy, rootless Docker, and instrument-agent guidance.
 
 ## Supported data
 

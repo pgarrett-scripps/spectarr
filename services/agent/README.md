@@ -27,7 +27,7 @@ Keep the state database on a local disk. SQLite locking is not reliable on every
 
 ## Install on Windows
 
-Download the signed `spectarr-agent-<version>-windows-x64.msi` from the Spectarr release. Install it, then open **Configure Spectarr Agent** from the Start menu. Enter the server URL, acquisition folder, agent ID, and one-time token from the Instrument agents dashboard.
+Download `spectarr-agent-<version>-windows-x64.msi` from the Spectarr release. The initial demo installer is unsigned, so Windows may display an unknown-publisher warning. Install it, then open **Configure Spectarr Agent** from the Start menu. Enter the server URL, acquisition folder, agent ID, and one-time token from the Instrument agents dashboard.
 
 The installer registers `SpectarrAgent` with the Windows Service Control Manager. Configuration, queue state, and rotating logs are stored under `C:\ProgramData\Spectarr Agent`. The service runs as `LocalService`. Grant `NT AUTHORITY\LOCAL SERVICE` read access to each acquisition folder.
 

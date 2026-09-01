@@ -7,7 +7,7 @@ Every release tag must pass these jobs in order:
 1. Validate that the tag and every package surface match `VERSION`.
 2. Build the Linux x86-64 Spectarr image with SBOM and provenance metadata.
 3. Test the acquisition agent on Windows and build its standalone executable.
-4. Authenticode-sign the agent executable and MSI, then produce the installer checksum.
+4. Build the Windows MSI, Authenticode-sign it when required, test installation and removal, then produce the installer checksum.
 5. Pull the versioned images into a clean temporary installation.
 6. Start the single Spectarr container and verify every supervised process.
 7. Bootstrap an administrator through the dashboard HTTP boundary.
@@ -24,7 +24,7 @@ Every release tag must pass these jobs in order:
 18. Complete the browser workflow from project creation through indexed spectra.
 19. Build the release archive and checksums only after the rehearsal succeeds.
 
-Tagged releases require `WINDOWS_SIGNING_CERTIFICATE_BASE64` and `WINDOWS_SIGNING_CERTIFICATE_PASSWORD` repository secrets. The first contains a base64-encoded PFX code-signing certificate. The Windows job refuses to publish a tagged release without both values.
+The initial `v0.1.0` demo release may be unsigned and must disclose the expected Windows unknown-publisher warning in its release notes. Every later tagged release requires `WINDOWS_SIGNING_CERTIFICATE_BASE64` and `WINDOWS_SIGNING_CERTIFICATE_PASSWORD` repository secrets. The first contains a base64-encoded PFX code-signing certificate.
 
 Run the same rehearsal against already published images from a Docker-capable workstation:
 
@@ -52,7 +52,7 @@ Run the reusable matrix with `scripts/vendor-acceptance.py`. It fails unless the
 ## Manual operational review
 
 - Confirm the release archive includes Compose configuration, environment template, acquisition-agent wheel, backup tools, security policy, changelog, license, and smoke fixture.
-- Confirm the Windows MSI and its checksum are attached and both the MSI and embedded agent executable have valid Authenticode signatures.
+- Confirm the Windows MSI and its checksum are attached. For `v0.1.0`, confirm that the release notes identify the installer as unsigned. For every later release, confirm that the MSI and embedded agent executable have valid Authenticode signatures.
 - Confirm production ports bind to loopback unless remote exposure was explicitly configured.
 - Confirm application and worker secrets are independent and strong.
 - Confirm the converter uses a rootless Docker-compatible socket when available.
