@@ -196,7 +196,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "WiX compilation failed"
           }
-          & "$wix\light.exe" -ext WixUIExtension services/agent/windows/output/Product.wixobj -out "services/agent/windows/output/spectarr-agent-$version-windows-x64.msi"
+          & "$wix\light.exe" -b "$pwd\services\agent\windows" -ext WixUIExtension services/agent/windows/output/Product.wixobj -out "services/agent/windows/output/spectarr-agent-$version-windows-x64.msi"
           if ($LASTEXITCODE -ne 0) {
             throw "WiX linking failed"
           }

@@ -60,6 +60,18 @@ def external_json_call(url: str, payload: object) -> object:
         return json.loads(response.read())
 
 
+def wait_for_external_json(url: str, payload: object, timeout_seconds: float = 180) -> object:
+    deadline = time.monotonic() + timeout_seconds
+    last_error = "no response"
+    while time.monotonic() < deadline:
+        try:
+            return external_json_call(url, payload)
+        except (OSError, error.URLError) as readiness_error:
+            last_error = str(readiness_error)
+        time.sleep(2)
+    raise RuntimeError(f"External service did not become ready: {last_error}")
+
+
 def wait_for(
     description: str,
     load,
@@ -146,7 +158,7 @@ def main() -> int:
     if not isinstance(health, dict) or health.get("database") != "ok":
         raise RuntimeError(f"Unexpected system health: {health}")
 
-    mcp = external_json_call(
+    mcp = wait_for_external_json(
         MCP_URL,
         {
             "jsonrpc": "2.0",
