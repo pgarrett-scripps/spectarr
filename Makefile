@@ -6,6 +6,7 @@ MSCONVERT_CLI_SOURCE ?= ../msconvert-cli
 MZMLPY_SOURCE ?= ../mzmlpy
 SPXTACULAR_SOURCE ?= ../spxtacular
 RELEASE_ENV ?= release/.env
+TEST_JOBS ?= 3
 
 prepare:
 	mkdir -p data/storage data/scratch imports
@@ -19,7 +20,8 @@ up: prepare
 down:
 	docker compose down
 
-test: version-check backend-test frontend-test services-test
+test: version-check
+	+$(MAKE) --output-sync=target -j$(TEST_JOBS) backend-test frontend-test services-test
 
 version-check:
 	python3 scripts/check_version.py
