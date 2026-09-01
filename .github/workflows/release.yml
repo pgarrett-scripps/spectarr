@@ -19,7 +19,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate release version
         shell: bash
         run: |
@@ -34,7 +34,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Resolve pinned dependencies
         id: dependencies
         shell: bash
@@ -47,25 +47,25 @@ jobs:
           echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
           echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
       - name: Check out MSCLI
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.msconvert_repository }}
           ref: ${{ steps.dependencies.outputs.msconvert_ref }}
           path: distribution/msconvert-cli
       - name: Check out mzmlpy
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
           ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
           path: distribution/mzmlpy
       - name: Check out Spxtacular
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
           ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
           path: distribution/spxtacular
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -106,8 +106,8 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Build acquisition agent wheel
@@ -129,7 +129,7 @@ jobs:
             cd release
             sha256sum "spectarr-${version}.tar.gz" > "spectarr-${version}.tar.gz.sha256"
           )
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: spectarr-release-bundle
           path: |
@@ -143,15 +143,14 @@ jobs:
       SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
       SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install build tools
         shell: pwsh
         run: |
           python -m pip install ./services/agent pyinstaller==6.20.0
-          choco install wixtoolset --version 3.14.1 -y --no-progress
       - name: Test acquisition agent on Windows
         shell: pwsh
         run: |
@@ -214,7 +213,7 @@ jobs:
           $installer = "services/agent/windows/output/spectarr-agent-$version-windows-x64.msi"
           $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
           "$hash  $(Split-Path -Leaf $installer)" | Set-Content "$installer.sha256" -Encoding ascii
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: spectarr-windows-agent
           path: |
@@ -225,7 +224,7 @@ jobs:
     needs: [image, bundle]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: spectarr-release-bundle
           path: candidate
@@ -245,11 +244,11 @@ jobs:
     needs: [smoke, windows-agent]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: spectarr-release-bundle
           path: release
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: spectarr-windows-agent
           path: release

@@ -13,7 +13,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Resolve pinned dependencies
         id: dependencies
         shell: bash
@@ -25,22 +25,22 @@ jobs:
           echo "mzmlpy_ref=$MZMLPY_REF" >> "$GITHUB_OUTPUT"
           echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
           echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.msconvert_repository }}
           ref: ${{ steps.dependencies.outputs.msconvert_ref }}
           path: dependencies/msconvert-cli
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
           ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
           path: dependencies/mzmlpy
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
           ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
           path: dependencies/spxtacular
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
@@ -60,7 +60,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: spectarr
       - name: Resolve pinned dependencies
@@ -75,17 +75,17 @@ jobs:
           echo "mzmlpy_ref=$MZMLPY_REF" >> "$GITHUB_OUTPUT"
           echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
           echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.msconvert_repository }}
           ref: ${{ steps.dependencies.outputs.msconvert_ref }}
           path: msconvert-cli
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
           ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
           path: mzmlpy
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
           ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
