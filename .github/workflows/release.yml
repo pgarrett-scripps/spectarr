@@ -190,7 +190,7 @@ jobs:
         run: |
           $version = Get-Content VERSION -Raw
           $version = $version.Trim()
-          $wix = "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin"
+          $wix = Join-Path $env:WIX "bin"
           New-Item -ItemType Directory -Path services/agent/windows/output -Force | Out-Null
           & "$wix\candle.exe" -arch x64 "-dSpectarrVersion=$version" "-dAgentExecutable=$pwd\services\agent\windows\dist\spectarr-agent.exe" -ext WixUIExtension services/agent/windows/Product.wxs -out services/agent/windows/output/Product.wixobj
           if ($LASTEXITCODE -ne 0) {
