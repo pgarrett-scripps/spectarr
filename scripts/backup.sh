@@ -4,7 +4,6 @@ set -euo pipefail
 backup_parent=${1:?Usage: scripts/backup.sh BACKUP_PARENT}
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_dir="${backup_parent%/}/spectarr-${timestamp}"
-data_dir=${SPECTARR_DATA_DIR:-data}
 compose=(docker compose)
 if [[ -n ${SPECTARR_COMPOSE_PROJECT_NAME:-} ]]
 then
@@ -27,7 +26,7 @@ fi
 
 mkdir -p "$backup_dir"
 "${compose[@]}" exec -T spectarr spectarr-backup create /data/spectarr.db > "$backup_dir/database.sqlite3"
-tar --create --file "$backup_dir/storage.tar" --directory "$data_dir" storage
+"${compose[@]}" exec -T spectarr python -c $'import sys\nimport tarfile\nfrom pathlib import Path\nwith tarfile.open(fileobj=sys.stdout.buffer, mode="w|") as archive:\n    for name in ("storage", ".spectarr"):\n        path = Path("/data") / name\n        if path.exists():\n            archive.add(path, arcname=name)' > "$backup_dir/storage.tar"
 (
   cd "$backup_dir"
   sha256sum database.sqlite3 storage.tar > SHA256SUMS

@@ -135,6 +135,7 @@ jobs:
           path: |
             release/spectarr-*.tar.gz
             release/spectarr-*.sha256
+            release/compose.yaml
 
   windows-agent:
     needs: validate
@@ -280,9 +281,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           generate_release_notes: true
-          body: |
-            Windows note: The 0.1.0 acquisition-agent installer is intentionally unsigned for this demo release. Windows may display an unknown-publisher warning during installation.
           files: |
+            release/compose.yaml
             release/spectarr-*.tar.gz
             release/spectarr-*.sha256
             release/spectarr-agent-*.msi

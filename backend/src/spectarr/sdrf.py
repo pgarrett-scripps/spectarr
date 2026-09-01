@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from . import __version__
 from .models import (
     Artifact,
     ArtifactRole,
@@ -233,7 +234,7 @@ def generate_document(session: Session, project: Project) -> SdrfDocument:
                 "comment[data file]": submission_filename(primary) if primary else "not available",
                 "comment[sdrf version]": SDRF_VERSION,
                 "comment[sdrf template]": BASE_TEMPLATE,
-                "comment[sdrf annotation tool]": "Spectarr v0.1.0",
+                "comment[sdrf annotation tool]": f"Spectarr v{__version__}",
             }
             row = [values.get(column, "not available") for column in REQUIRED_COLUMNS]
             associated_sources = sources[1:]

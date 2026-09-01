@@ -1,6 +1,6 @@
 """Spectarr conversion service."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .models import ConversionRequest, ConversionResult, OutputArtifact, OutputFormat
 from .service import ConversionService, MsconvertCliRunner

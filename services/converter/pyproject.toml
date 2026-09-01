@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spectarr-converter"
-version = "0.1.0"
+version = "0.2.0"
 description = "Structured ProteoWizard conversion adapter for Spectarr"
 license = "Apache-2.0"
 requires-python = ">=3.12"

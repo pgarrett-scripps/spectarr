@@ -59,6 +59,8 @@ Your durable data lives in one directory:
 
 ```text
 data/
+├── .spectarr/
+│   └── runtime-secrets.json
 ├── spectarr.db
 └── storage/
     ├── objects/
@@ -69,32 +71,24 @@ Back up that directory with the included online backup tool. Restore tests boot 
 
 ## Quick start
 
-Spectarr targets Linux x86-64 and requires Docker with Compose. The server is designed to run on a workstation, lab server, or NAS with Docker support.
+Spectarr targets Linux x86-64 and requires Docker. Start the published image with one command:
 
-1. Download `spectarr-0.1.0.tar.gz` from the [latest release](https://github.com/pgarrett-scripps/spectarr/releases/latest).
-2. Extract it into a new directory.
-3. Copy the environment template and set two generated secrets plus the absolute data path.
-
-```bash
-mkdir spectarr
-tar -xzf spectarr-0.1.0.tar.gz -C spectarr
-cd spectarr
-cp .env.example .env
-mkdir -p data imports
-openssl rand -hex 32
-openssl rand -hex 32
-```
-
-Put the generated values in `SPECTARR_SECRET_KEY` and `SPECTARR_WORKER_TOKEN`. Set `SPECTARR_DOCKER_DATA_ROOT` to the absolute path of the new `data` directory, then start Spectarr:
-
-```bash
-docker compose pull
-docker compose up -d
+```console
+docker run -d --name spectarr --restart unless-stopped -p 127.0.0.1:3280:8000 --mount source=spectarr-data,target=/data --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock ghcr.io/pgarrett-scripps/spectarr:latest
 ```
 
 Open [http://localhost:3280](http://localhost:3280) and create the first administrator account.
 
-The GitHub release contains the Compose bundle and the Windows acquisition-agent installer. The initial demo installer is unsigned, so Windows may display an unknown-publisher warning. The bundle includes the configuration template, backup and restore tools, smoke fixture, and acquisition-agent wheel. See the [release installation guide](release/README.md) for reverse proxy, rootless Docker, and instrument-agent guidance.
+Spectarr creates and persists its internal secrets automatically. The named volume keeps the database, files, and secrets across container replacement.
+
+For Compose, download the standalone file and start it. No environment file is required:
+
+```bash
+curl -LO https://github.com/pgarrett-scripps/spectarr/releases/latest/download/compose.yaml
+docker compose up -d
+```
+
+The optional GitHub release bundle contains backup and restore tools, smoke fixtures, and the acquisition agent. See the [release installation guide](release/README.md) for bind mounts, reverse proxies, rootless Docker, and instrument-agent guidance.
 
 ## Supported data
 
@@ -175,7 +169,6 @@ The single container supervises the API, dashboard, converter, extractor, webhoo
 Source builds use the sibling `msconvert-cli`, `mzmlpy`, and `spxtacular` repositories pinned in `DEPENDENCIES.env`. With those checkouts beside Spectarr:
 
 ```bash
-cp .env.example .env
 make up
 ```
 

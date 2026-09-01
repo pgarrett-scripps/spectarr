@@ -4,8 +4,12 @@ All notable changes to Spectarr will be documented in this file. Releases follow
 
 ## Unreleased
 
+## 0.2.0 - 2026-08-31
+
 ### Added
 
+- Zero-configuration production startup with persistent, automatically generated application and worker secrets
+- Automatic discovery of bind mounts and named volumes used by nested conversion containers
 - Release-readiness validation, clean-room rehearsal tooling, and production smoke coverage
 - Public conversion-library contracts for reproducible ProteoWizard execution
 - Security reporting and release governance documentation
@@ -15,6 +19,8 @@ All notable changes to Spectarr will be documented in this file. Releases follow
 
 ### Changed
 
+- The published image now starts with one Docker command and the standalone Compose file requires no environment file
+- Backups now include persistent runtime secrets and work with bind mounts or named volumes
 - The full local and release stack now runs as one container with one published image
 - SQLite is now the only application database, with WAL mode, integrity checks, and online backups
 - The dashboard and REST API now share one HTTP port

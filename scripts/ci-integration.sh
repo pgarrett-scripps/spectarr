@@ -41,11 +41,9 @@ fi
 
 mkdir -p "$backup_work/runtime-data" "$backup_work/imports"
 {
-  echo "SPECTARR_SECRET_KEY=$(openssl rand -hex 32)"
-  echo "SPECTARR_WORKER_TOKEN=$(openssl rand -hex 32)"
+  echo "SPECTARR_ENVIRONMENT=production"
   echo "SPECTARR_DATA_DIR=$backup_work/runtime-data"
   echo "SPECTARR_IMPORTS_DIR=$backup_work/imports"
-  echo "SPECTARR_DOCKER_DATA_ROOT=$backup_work/runtime-data"
   echo "SPECTARR_UID=$(id -u)"
   echo "SPECTARR_GID=$(id -g)"
   echo "SPECTARR_BIND_ADDRESS=127.0.0.1"

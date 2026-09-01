@@ -36,8 +36,6 @@ read -r dashboard_port mcp_port < <(
   echo "SPECTARR_IMPORT_DIR=$restore_dir/imports"
   echo "SPECTARR_IMPORTS_DIR=$restore_dir/imports"
   echo "SPECTARR_DOCKER_DATA_ROOT=$restore_dir"
-  echo "SPECTARR_SECRET_KEY=$(openssl rand -hex 32)"
-  echo "SPECTARR_WORKER_TOKEN=$(openssl rand -hex 32)"
   echo "SPECTARR_AUTH_MODE=password"
   echo "SPECTARR_ALLOW_REMOTE_NO_AUTH=false"
 } > "$restore_env"
@@ -82,6 +80,6 @@ then
   echo "Restored Spectarr instance did not become healthy" >&2
   exit 1
 fi
-"${restore_compose[@]}" exec -T spectarr python -c $'import json\nimport os\nimport urllib.request\nrequest = urllib.request.Request("http://127.0.0.1:8000/api/v1/system/health", headers={"X-Spectarr-Worker-Token": os.environ["SPECTARR_WORKER_TOKEN"]})\nwith urllib.request.urlopen(request, timeout=5) as response:\n    payload = json.load(response)\nif payload.get("database") != "ok" or payload.get("storage") != "ok":\n    raise SystemExit(f"Restored system health failed: {payload}")'
+"${restore_compose[@]}" exec -T spectarr python -c $'import json\nimport urllib.request\nfrom pathlib import Path\nsecrets = json.loads(Path("/data/.spectarr/runtime-secrets.json").read_text())\nrequest = urllib.request.Request("http://127.0.0.1:8000/api/v1/system/health", headers={"X-Spectarr-Worker-Token": secrets["SPECTARR_WORKER_TOKEN"]})\nwith urllib.request.urlopen(request, timeout=5) as response:\n    payload = json.load(response)\nif payload.get("database") != "ok" or payload.get("storage") != "ok":\n    raise SystemExit(f"Restored system health failed: {payload}")'
 
 echo "Restore test started and validated an independent instance in $restore_dir"

@@ -44,8 +44,6 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$rehearsal_root/data" "$rehearsal_root/imports" "$backup_root"
-secret_key=$(openssl rand -hex 32)
-worker_token=$(openssl rand -hex 32)
 smoke_password=$(openssl rand -hex 24)
 
 {
@@ -59,9 +57,6 @@ smoke_password=$(openssl rand -hex 24)
   echo "SPECTARR_GID=$(id -g)"
   echo "SPECTARR_DATA_DIR=$rehearsal_root/data"
   echo "SPECTARR_IMPORT_DIR=$rehearsal_root/imports"
-  echo "SPECTARR_DOCKER_DATA_ROOT=$rehearsal_root/data"
-  echo "SPECTARR_SECRET_KEY=$secret_key"
-  echo "SPECTARR_WORKER_TOKEN=$worker_token"
   echo "SPECTARR_AUTH_MODE=password"
   echo "SPECTARR_ALLOW_REMOTE_NO_AUTH=false"
   echo "SPECTARR_MCP_ALLOW_WRITES=false"

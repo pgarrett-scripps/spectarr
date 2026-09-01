@@ -54,7 +54,7 @@ Run the reusable matrix with `scripts/vendor-acceptance.py`. It fails unless the
 - Confirm the release archive includes Compose configuration, environment template, acquisition-agent wheel, backup tools, security policy, changelog, license, and smoke fixture.
 - Confirm the Windows MSI and its checksum are attached. For `v0.1.0`, confirm that the release notes identify the installer as unsigned. For every later release, confirm that the MSI and embedded agent executable have valid Authenticode signatures.
 - Confirm production ports bind to loopback unless remote exposure was explicitly configured.
-- Confirm application and worker secrets are independent and strong.
+- Confirm first startup generates independent, strong application and worker secrets under the durable data directory.
 - Confirm the converter uses a rootless Docker-compatible socket when available.
 - Confirm a restored database and storage tree can be started independently of the active installation.
 - Confirm the GitHub release checksum and image digests match the tested artifacts.
