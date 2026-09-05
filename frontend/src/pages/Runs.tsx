@@ -1,7 +1,7 @@
 import { ChevronRight, Download, FlaskConical, FolderInput, ListTree, Plus, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, type RunPage } from '../api/client'
 import { useResource } from '../api/useResource'
 import { useAuth } from '../auth/AuthContext'
 import { formatBytes, formatRelativeDate, RunStatusBadge } from '../components/Data'
@@ -14,7 +14,6 @@ import type { Project } from '../types'
 
 export function Runs({ inbox = false }: { inbox?: boolean }) {
   const { projectId = '' } = useParams()
-  const resource = useResource(inbox ? api.inbox : api.runs, [])
   const project = useResource<Project | null>(() => projectId ? api.project(projectId) : Promise.resolve(null), null, projectId)
   const experiments = useResource(() => projectId ? api.experiments(projectId) : Promise.resolve([]), [], projectId)
   const auth = useAuth()
@@ -28,19 +27,38 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
   const canMove = auth.user?.role === 'admin' || auth.user?.role === 'operator'
   const canProcess = !inbox && canMove
   const experimentId = projectId ? searchParams.get('experiment') ?? '' : ''
+  const [offset, setOffset] = useState(0)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const filters = { projectId, experimentId, query: query.trim(), assignmentStatus: inbox ? 'needs_assignment' : undefined }
+  const filterKey = JSON.stringify(filters)
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey)
+  if (lastFilterKey !== filterKey) {
+    setLastFilterKey(filterKey)
+    setOffset(0)
+    setSelected(new Set())
+  }
+  const resource = useResource<RunPage>(
+    () => api.runPage({ ...filters, offset, limit: 50 }),
+    { items: [], total: 0, nextOffset: null, experimentCounts: {} },
+    `${filterKey}:${offset}`
+  )
 
   useEffect(() => setQuery(searchParams.get('q') ?? ''), [searchParams])
 
-  const projectRuns = resource.data.filter(run => !projectId || run.projectId === projectId)
-  const visibleRuns = projectRuns.filter(run => {
-    const matchesExperiment = !experimentId || run.experimentId === experimentId
-    const searchable = `${run.name} ${run.projectName} ${run.experimentName} ${run.sampleName} ${run.instrument}`.toLowerCase()
-    return matchesExperiment && searchable.includes(query.trim().toLowerCase())
-  })
+  const visibleRuns = resource.data.items
   const selectedVisible = visibleRuns.filter(run => selected.has(run.id))
   const selectedExperiment = experiments.data.find(experiment => experiment.id === experimentId)
-  const initialLoading = resource.loading || Boolean(projectId && (project.loading || experiments.loading))
+  const initialLoading = Boolean(projectId && (project.loading || experiments.loading))
   const hasFilters = Boolean(query.trim() || experimentId)
+
+  useEffect(() => {
+    if (!resource.loading && !resource.error && offset > 0 && offset >= resource.data.total) {
+      setOffset(Math.max(0, Math.ceil(resource.data.total / 50) - 1) * 50)
+      setSelected(new Set())
+    }
+  }, [offset, resource.data.total, resource.error, resource.loading])
+
 
   useEffect(() => {
     if (experiments.loading || !experimentId || selectedExperiment) return
@@ -73,19 +91,28 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
     return next
   })
 
-  const exportCsv = () => {
-    const quote = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`
-    const rows = [
-      ['Run', 'Project', 'Experiment', 'Sample', 'Instrument', 'Source', 'Bytes', 'Imported'],
-      ...visibleRuns.map(run => [run.name, run.projectName, run.experimentName, run.sampleName, run.instrument, run.sourceFormat, run.sizeBytes, run.importedAt])
-    ]
-    const csv = rows.map(row => row.map(quote).join(',')).join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = 'spectarr-runs.csv'
-    anchor.click()
-    URL.revokeObjectURL(url)
+  const exportCsv = async () => {
+    setExporting(true)
+    setExportError(null)
+    try {
+      const runs = await api.runs(filters)
+      const quote = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`
+      const rows = [
+        ['Run', 'Project', 'Experiment', 'Sample', 'Instrument', 'Source', 'Bytes', 'Imported'],
+        ...runs.map(run => [run.name, run.projectName, run.experimentName, run.sampleName, run.instrument, run.sourceFormat, run.sizeBytes, run.importedAt])
+      ]
+      const csv = rows.map(row => row.map(quote).join(',')).join('\n')
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = 'spectarr-runs.csv'
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (reason) {
+      setExportError(reason instanceof Error ? reason.message : 'Could not export runs')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const title = inbox ? 'Instrument Inbox' : projectId ? project.data?.name ?? 'Project runs' : 'All runs'
@@ -100,21 +127,22 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
     <PageHeader title={title} description={description} actions={<>
       {auth.user?.role === 'admin' && projectId && <button className="button button-secondary" onClick={() => setManagingExperiments(true)}><ListTree size={16} /> Manage experiments</button>}
       {canProcess && projectId && <button className="button button-primary" onClick={() => setProcessing({ projectId })}><FlaskConical size={16} /> Process project</button>}
-      {!inbox && visibleRuns.length > 0 && <button className="button button-secondary" onClick={exportCsv}><Download size={16} /> Export CSV</button>}
-      {!inbox && <Link className="button button-primary" to={importRunPath(projectId || undefined)}><Plus size={16} /> Import run</Link>}
+      {!inbox && visibleRuns.length > 0 && <button className="button button-secondary" disabled={exporting} onClick={() => void exportCsv()}><Download size={16} /> {exporting ? 'Exporting' : 'Export CSV'}</button>}
+      {!inbox && canMove && <Link className="button button-primary" to={importRunPath(projectId || undefined)}><Plus size={16} /> Import run</Link>}
     </>} />
     {projectId && <nav className="section-tabs" aria-label="Project sections">
       <NavLink to={projectRunsPath(projectId)} className={({ isActive }) => isActive ? 'active' : ''}>Runs</NavLink>
       <NavLink to={`/projects/${projectId}/metadata`} className={({ isActive }) => isActive ? 'active' : ''}>Metadata and SDRF</NavLink>
     </nav>}
+    {exportError && <ApiErrorBanner message={exportError} onRetry={() => void exportCsv()} />}
     {resource.error && <ApiErrorBanner message={resource.error} onRetry={resource.refresh} />}
     {project.error && <ApiErrorBanner message={project.error} onRetry={project.refresh} />}
     {experiments.error && <ApiErrorBanner message={experiments.error} onRetry={experiments.refresh} />}
 
     {initialLoading ? <LoadingState label={projectId ? 'Loading project runs' : 'Loading runs'} /> : <>{projectId && experiments.data.length > 0 && <div className="experiment-filter" aria-label="Filter runs by experiment">
       <span>Experiments</span>
-      <button className={!experimentId ? 'active' : ''} onClick={() => chooseExperiment('')}>All <small>{projectRuns.length}</small></button>
-      {experiments.data.map(experiment => <button className={experiment.id === experimentId ? 'active' : ''} key={experiment.id} onClick={() => chooseExperiment(experiment.id)}>{experiment.name} <small>{projectRuns.filter(run => run.experimentId === experiment.id).length}</small></button>)}
+      <button className={!experimentId ? 'active' : ''} onClick={() => chooseExperiment('')}>All <small>{Object.values(resource.data.experimentCounts).reduce((sum, count) => sum + count, 0)}</small></button>
+      {experiments.data.map(experiment => <button className={experiment.id === experimentId ? 'active' : ''} key={experiment.id} onClick={() => chooseExperiment(experiment.id)}>{experiment.name} <small>{resource.data.experimentCounts[experiment.id] ?? 0}</small></button>)}
     </div>}
 
     <Panel className="table-panel">
@@ -124,9 +152,9 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
         {canProcess && selectedVisible.length > 0 && <button className="button button-primary" onClick={() => setProcessing({ runIds: selectedVisible.map(run => run.id) })}><FlaskConical size={15} /> Process selected ({selectedVisible.length})</button>}
         {canMove && selectedVisible.length > 0 && <button className="button button-primary" onClick={() => setMoving(selectedVisible.map(run => run.id))}><FolderInput size={15} /> Move selected ({selectedVisible.length})</button>}
       </div>
-      {visibleRuns.length === 0 ? inbox
+      {resource.loading ? <LoadingState label="Loading runs" /> : visibleRuns.length === 0 ? inbox
         ? <EmptyState title="Inbox is clear" description="New automatic instrument uploads awaiting assignment will appear here." />
-        : <EmptyState title="No runs found" description={hasFilters ? 'No runs match the current search and experiment filters.' : 'Import an instrument acquisition to add the first run.'} action={hasFilters ? 'Clear filters' : 'Import run'} onAction={() => hasFilters ? clearFilters() : navigate(importRunPath(projectId || undefined))} />
+        : <EmptyState title="No runs found" description={hasFilters ? 'No runs match the current search and experiment filters.' : canMove ? 'Import an instrument acquisition to add the first run.' : 'No runs are available to view yet.'} action={hasFilters ? 'Clear filters' : 'Import run'} onAction={hasFilters ? clearFilters : canMove ? () => navigate(importRunPath(projectId || undefined)) : undefined} />
         : <div className="table-scroll"><table>
           <thead><tr>{canMove && <th className="select-column"><input type="checkbox" name="selectAllRuns" aria-label="Select all visible runs" checked={selectedVisible.length === visibleRuns.length && visibleRuns.length > 0} onChange={() => setSelected(selectedVisible.length === visibleRuns.length ? new Set() : new Set(visibleRuns.map(run => run.id)))} /></th>}<th>Run</th><th>Status</th><th>{projectId ? 'Experiment' : 'Project'}</th><th>Instrument</th><th>Source</th><th>Size</th><th>Imported</th><th /></tr></thead>
           <tbody>{visibleRuns.map(run => <tr key={run.id}>
@@ -141,7 +169,12 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
             <td><div className="row-actions">{canMove && <button className="icon-button" aria-label={`Move ${run.name}`} onClick={() => setMoving([run.id])}><FolderInput size={16} /></button>}<Link className="row-link" to={runPath(run)} aria-label={`Open ${run.name}`}><ChevronRight size={17} /></Link></div></td>
           </tr>)}</tbody>
         </table></div>}
-      <div className="table-footer"><span>Showing {visibleRuns.length} of {projectRuns.length} runs</span></div>
+      <div className="table-footer"><span>{resource.loading ? 'Loading runs' : `Showing ${resource.data.total ? offset + 1 : 0} to ${offset + visibleRuns.length} of ${resource.data.total} runs`}</span><div className="row-actions">
+        <button className="button button-secondary" disabled={offset === 0 || resource.loading} onClick={() => { setOffset(Math.max(0, offset - 50))
+          setSelected(new Set()) }}>Previous</button>
+        <button className="button button-secondary" disabled={resource.data.nextOffset === null || resource.loading} onClick={() => { setOffset(resource.data.nextOffset ?? offset)
+          setSelected(new Set()) }}>Next</button>
+      </div></div>
     </Panel></>}
     {moving && <MoveRunsDialog runIds={moving} onClose={() => setMoving(null)} onMoved={() => {
       setMoving(null)

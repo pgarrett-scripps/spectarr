@@ -23,7 +23,7 @@ NETWORK_FILESYSTEM_TYPES = frozenset({"cifs", "smb3", "smbfs", "nfs", "nfs4", "f
 
 
 def process_commands() -> list[tuple[str, list[str], bool]]:
-    return [
+    commands = [
         (
             "spectrum reader",
             ["spectarr-spectrum-server", "--host", "127.0.0.1", "--port", "8002"],
@@ -39,6 +39,10 @@ def process_commands() -> list[tuple[str, list[str], bool]]:
         ("webhooks", ["spectarr-webhook-worker"], False),
         ("MCP", ["spectarr-mcp"], False),
     ]
+
+    if os.getenv("SPECTARR_RESTORE_MODE", "false").lower() in {"true", "1"}:
+        return commands[:2]
+    return commands
 
 
 def child_identity(run_as_root: bool) -> dict[str, int]:
@@ -303,7 +307,8 @@ def main() -> int:
     verify_storage_identity()
     warn_if_database_on_network_filesystem()
     prepare_runtime_secrets()
-    prepare_docker_mount_map()
+    if os.getenv("SPECTARR_RESTORE_MODE", "false").lower() not in {"true", "1"}:
+        prepare_docker_mount_map()
     os.environ["HOME"] = "/tmp/spectarr-home"
     os.environ.setdefault("SPECTARR_API_URL", API_URL)
     os.environ.setdefault("SPECTARR_URL", API_URL)

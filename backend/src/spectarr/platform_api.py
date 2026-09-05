@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Annotated
 
+from anyio import to_thread
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
@@ -23,6 +25,7 @@ from .auth import (
     require_admin,
     require_agent,
     verify_password,
+    visibility,
 )
 from .config import get_settings
 from .database import get_session
@@ -89,7 +92,8 @@ from .schemas import (
     WebhookRead,
     WebhookUpdate,
 )
-from .storage import hash_file
+from .storage import LocalArtifactStorage, hash_file
+from .maintenance import cleanup_upload, upload_lock
 
 auth_router = APIRouter(tags=["auth"])
 platform_router = APIRouter()
@@ -114,7 +118,7 @@ def issue_user_session(session: Session, user: User, name: str) -> tuple[ApiToke
 
 
 @auth_router.post("/auth/bootstrap", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
-async def bootstrap_admin(payload: BootstrapRequest, session: SessionDep) -> dict:
+def bootstrap_admin(payload: BootstrapRequest, session: SessionDep) -> dict:
     if get_settings().effective_auth_mode == "local":
         raise HTTPException(status.HTTP_409_CONFLICT, "Password bootstrap is unavailable in local mode")
     if session.scalar(select(func.count(User.id))):
@@ -132,14 +136,14 @@ async def bootstrap_admin(payload: BootstrapRequest, session: SessionDep) -> dic
 
 
 @auth_router.get("/auth/bootstrap/status")
-async def bootstrap_status(session: SessionDep) -> dict:
+def bootstrap_status(session: SessionDep) -> dict:
     if get_settings().effective_auth_mode == "local":
         return {"required": False}
     return {"required": not bool(session.scalar(select(func.count(User.id))))}
 
 
 @auth_router.get("/auth/config", response_model=AuthConfiguration)
-async def auth_configuration() -> AuthConfiguration:
+def auth_configuration() -> AuthConfiguration:
     settings = get_settings()
     return AuthConfiguration(
         mode=settings.effective_auth_mode,
@@ -149,7 +153,7 @@ async def auth_configuration() -> AuthConfiguration:
 
 
 @auth_router.post("/auth/login", response_model=LoginResponse)
-async def login(payload: LoginRequest, session: SessionDep) -> dict:
+def login(payload: LoginRequest, session: SessionDep) -> dict:
     settings = get_settings()
     if settings.effective_auth_mode == "local":
         raise HTTPException(status.HTTP_409_CONFLICT, "Password login is unavailable in local mode")
@@ -178,7 +182,7 @@ async def login(payload: LoginRequest, session: SessionDep) -> dict:
 
 
 @platform_router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
-async def logout(
+def logout(
     session: SessionDep,
     authorization: Annotated[str | None, Header()] = None,
 ) -> Response:
@@ -198,7 +202,7 @@ async def logout(
 
 
 @platform_router.get("/auth/me", response_model=UserRead, tags=["auth"])
-async def me(request: Request, session: SessionDep) -> User:
+def me(request: Request, session: SessionDep) -> User:
     principal: Principal = request.state.principal
     if principal.user_id is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This credential is not a user credential")
@@ -206,7 +210,7 @@ async def me(request: Request, session: SessionDep) -> User:
 
 
 @platform_router.post("/auth/password", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
-async def change_password(
+def change_password(
     payload: PasswordChange,
     request: Request,
     session: SessionDep,
@@ -269,13 +273,13 @@ def aware_datetime(value: datetime) -> datetime:
 
 
 @platform_router.get("/users", response_model=list[UserRead], tags=["auth"])
-async def list_users(request: Request, session: SessionDep) -> list[User]:
+def list_users(request: Request, session: SessionDep) -> list[User]:
     require_admin(request)
     return list(session.scalars(select(User).order_by(User.username)))
 
 
 @platform_router.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED, tags=["auth"])
-async def create_user(payload: UserCreate, request: Request, session: SessionDep) -> User:
+def create_user(payload: UserCreate, request: Request, session: SessionDep) -> User:
     require_admin(request)
     return commit_or_conflict(
         session,
@@ -290,7 +294,7 @@ async def create_user(payload: UserCreate, request: Request, session: SessionDep
 
 
 @platform_router.patch("/users/{user_id}", response_model=UserRead, tags=["auth"])
-async def update_user(user_id: str, payload: UserUpdate, request: Request, session: SessionDep) -> User:
+def update_user(user_id: str, payload: UserUpdate, request: Request, session: SessionDep) -> User:
     require_admin(request)
     user = fetch_or_404(session, User, user_id)
     values = payload.model_dump(exclude_unset=True)
@@ -318,7 +322,7 @@ async def update_user(user_id: str, payload: UserUpdate, request: Request, sessi
 
 
 @platform_router.get("/tokens", response_model=list[TokenRead], tags=["auth"])
-async def list_tokens(request: Request, session: SessionDep) -> list[ApiToken]:
+def list_tokens(request: Request, session: SessionDep) -> list[ApiToken]:
     principal: Principal = request.state.principal
     query = (
         select(ApiToken)
@@ -331,7 +335,7 @@ async def list_tokens(request: Request, session: SessionDep) -> list[ApiToken]:
 
 
 @platform_router.post("/tokens", status_code=status.HTTP_201_CREATED, tags=["auth"])
-async def create_token(payload: TokenCreate, request: Request, session: SessionDep) -> dict:
+def create_token(payload: TokenCreate, request: Request, session: SessionDep) -> dict:
     principal: Principal = request.state.principal
     user_id = payload.user_id or principal.user_id
     if user_id is None:
@@ -361,7 +365,7 @@ async def create_token(payload: TokenCreate, request: Request, session: SessionD
 
 
 @platform_router.delete("/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
-async def revoke_token(token_id: str, request: Request, session: SessionDep) -> Response:
+def revoke_token(token_id: str, request: Request, session: SessionDep) -> Response:
     principal: Principal = request.state.principal
     token = session.scalar(select(ApiToken).where(ApiToken.id == token_id, ApiToken.kind == TokenKind.API))
     if token is None:
@@ -379,7 +383,7 @@ async def revoke_token(token_id: str, request: Request, session: SessionDep) -> 
     status_code=status.HTTP_201_CREATED,
     tags=["auth"],
 )
-async def create_membership(
+def create_membership(
     project_id: str, payload: MembershipCreate, request: Request, session: SessionDep
 ) -> ProjectMembership:
     require_admin(request)
@@ -394,7 +398,7 @@ async def create_membership(
 @platform_router.get(
     "/projects/{project_id}/memberships", response_model=list[MembershipRead], tags=["auth"]
 )
-async def list_memberships(project_id: str, request: Request, session: SessionDep) -> list[ProjectMembership]:
+def list_memberships(project_id: str, request: Request, session: SessionDep) -> list[ProjectMembership]:
     require_admin(request)
     fetch_or_404(session, Project, project_id)
     return list(
@@ -409,7 +413,7 @@ async def list_memberships(project_id: str, request: Request, session: SessionDe
 @platform_router.delete(
     "/projects/{project_id}/memberships/{membership_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"]
 )
-async def delete_membership(
+def delete_membership(
     project_id: str, membership_id: str, request: Request, session: SessionDep
 ) -> Response:
     require_admin(request)
@@ -422,7 +426,7 @@ async def delete_membership(
 
 
 @platform_router.get("/audit-log", response_model=list[AuditLogRead], tags=["auth"])
-async def list_audit_log(
+def list_audit_log(
     request: Request,
     session: SessionDep,
     offset: int = 0,
@@ -438,7 +442,7 @@ async def list_audit_log(
     status_code=status.HTTP_201_CREATED,
     tags=["extraction"],
 )
-async def create_extraction_result(
+def create_extraction_result(
     artifact_id: str, payload: ExtractionResultCreate, session: SessionDep, storage: StorageDep
 ) -> ExtractionResult:
     artifact = fetch_or_404(session, Artifact, artifact_id)
@@ -482,7 +486,7 @@ async def create_extraction_result(
     response_model=list[ExtractionResultRead],
     tags=["extraction"],
 )
-async def list_extraction_results(artifact_id: str, session: SessionDep) -> list[ExtractionResult]:
+def list_extraction_results(artifact_id: str, session: SessionDep) -> list[ExtractionResult]:
     fetch_or_404(session, Artifact, artifact_id)
     return list(
         session.scalars(
@@ -498,7 +502,7 @@ async def list_extraction_results(artifact_id: str, session: SessionDep) -> list
     response_model=ExtractionResultRead,
     tags=["extraction"],
 )
-async def latest_extraction_result(
+def latest_extraction_result(
     artifact_id: str, session: SessionDep, result_type: str | None = None
 ) -> ExtractionResult:
     query = select(ExtractionResult).where(ExtractionResult.artifact_id == artifact_id)
@@ -511,7 +515,7 @@ async def latest_extraction_result(
 
 
 @platform_router.get("/runs/{run_id}/qc", tags=["extraction"])
-async def latest_run_qc(run_id: str, session: SessionDep) -> dict:
+def latest_run_qc(run_id: str, session: SessionDep) -> dict:
     fetch_or_404(session, Run, run_id)
     result = session.scalar(
         select(ExtractionResult)
@@ -538,7 +542,7 @@ async def latest_run_qc(run_id: str, session: SessionDep) -> dict:
     status_code=status.HTTP_202_ACCEPTED,
     tags=["extraction"],
 )
-async def request_extraction(artifact_id: str, payload: ExtractRequest, session: SessionDep) -> Job:
+def request_extraction(artifact_id: str, payload: ExtractRequest, session: SessionDep) -> Job:
     artifact = fetch_or_404(session, Artifact, artifact_id)
     key_material = f"extract:{artifact.id}:{artifact.sha256}:{payload.extractor}:{payload.schema_version}"
     if payload.force:
@@ -559,8 +563,8 @@ async def request_extraction(artifact_id: str, payload: ExtractRequest, session:
 
 
 @platform_router.get("/automation-rules", response_model=list[AutomationRuleRead], tags=["automation"])
-async def list_automation_rules(session: SessionDep) -> list[AutomationRule]:
-    return list(session.scalars(select(AutomationRule).order_by(AutomationRule.priority, AutomationRule.name)))
+def list_automation_rules(request: Request, session: SessionDep) -> list[AutomationRule]:
+    return list(session.scalars(select(AutomationRule).where(visibility(request.state.principal, AutomationRule)).order_by(AutomationRule.priority, AutomationRule.name)))
 
 
 @platform_router.post(
@@ -569,7 +573,7 @@ async def list_automation_rules(session: SessionDep) -> list[AutomationRule]:
     status_code=status.HTTP_201_CREATED,
     tags=["automation"],
 )
-async def create_automation_rule(
+def create_automation_rule(
     payload: AutomationRuleCreate, request: Request, session: SessionDep
 ) -> AutomationRule:
     require_admin(request)
@@ -593,7 +597,7 @@ async def create_automation_rule(
 @platform_router.patch(
     "/automation-rules/{rule_id}", response_model=AutomationRuleRead, tags=["automation"]
 )
-async def update_automation_rule(
+def update_automation_rule(
     rule_id: str, payload: AutomationRuleUpdate, request: Request, session: SessionDep
 ) -> AutomationRule:
     require_admin(request)
@@ -607,7 +611,7 @@ async def update_automation_rule(
 
 
 @platform_router.post("/agents/register", status_code=status.HTTP_201_CREATED, tags=["agents"])
-async def register_agent(
+def register_agent(
     payload: AgentRegister,
     request: Request,
     session: SessionDep,
@@ -654,13 +658,13 @@ async def register_agent(
 
 
 @platform_router.get("/agents", response_model=list[AgentRead], tags=["agents"])
-async def list_agents(request: Request, session: SessionDep) -> list[Agent]:
+def list_agents(request: Request, session: SessionDep) -> list[Agent]:
     require_admin(request)
     return list(session.scalars(select(Agent).order_by(Agent.name)))
 
 
 @platform_router.patch("/agents/{agent_id}", response_model=AgentRead, tags=["agents"])
-async def update_agent(
+def update_agent(
     agent_id: str,
     payload: AgentUpdate,
     request: Request,
@@ -691,7 +695,7 @@ async def update_agent(
 
 
 @platform_router.post("/agents/{agent_id}/rotate-token", tags=["agents"])
-async def rotate_agent_token(
+def rotate_agent_token(
     agent_id: str,
     request: Request,
     session: SessionDep,
@@ -707,7 +711,7 @@ async def rotate_agent_token(
 
 
 @platform_router.get("/instruments/{instrument_id}/agent-status", tags=["agents"])
-async def instrument_agent_status(instrument_id: str, session: SessionDep) -> dict:
+def instrument_agent_status(instrument_id: str, session: SessionDep) -> dict:
     instrument = fetch_or_404(session, Instrument, instrument_id)
     agents = [
         agent
@@ -722,7 +726,7 @@ async def instrument_agent_status(instrument_id: str, session: SessionDep) -> di
 
 
 @platform_router.post("/agents/{agent_id}/heartbeat", response_model=AgentRead, tags=["agents"])
-async def heartbeat_agent(
+def heartbeat_agent(
     agent_id: str, payload: AgentHeartbeat, request: Request, session: SessionDep
 ) -> Agent:
     principal = require_agent(request)
@@ -739,7 +743,7 @@ async def heartbeat_agent(
 
 
 @platform_router.post("/upload-sessions", status_code=status.HTTP_201_CREATED, tags=["agents"])
-async def create_upload_session(
+def create_upload_session(
     payload: UploadSessionCreate,
     request: Request,
     session: SessionDep,
@@ -754,7 +758,35 @@ async def create_upload_session(
         )
     )
     if existing_session:
-        return upload_session_view(existing_session)
+        digest = payload.sha256.lower() if payload.sha256 else bundle_manifest_digest(payload.bundle_manifest.model_dump())
+        if (existing_session.expected_sha256 != digest or existing_session.filename != payload.filename
+                or existing_session.format != payload.format or existing_session.role != payload.role
+                or (payload.run_id is not None and existing_session.run_id != payload.run_id)):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Idempotency key belongs to a different upload")
+        with upload_lock(existing_session.id):
+            session.refresh(existing_session)
+            recover_verification(session, existing_session)
+            if existing_session.state == UploadState.EXPIRED or (
+                existing_session.state == UploadState.OPEN and aware_datetime(existing_session.expires_at) <= datetime.now(timezone.utc)
+            ):
+                records = existing_session.parts if existing_session.bundle_manifest else [existing_session]
+                for record in records:
+                    path = Path(record.temporary_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.touch(exist_ok=True)
+                    record.offset = path.stat().st_size
+                if existing_session.bundle_manifest:
+                    existing_session.offset = sum(part.offset for part in existing_session.parts)
+                existing_session.state = UploadState.OPEN
+                existing_session.error = None
+                existing_session.expires_at = datetime.now(timezone.utc) + timedelta(hours=get_settings().upload_session_hours)
+                session.commit()
+            if existing_session.state == UploadState.COMPLETED:
+                cleanup_upload(storage, existing_session)
+            return upload_session_view(existing_session)
+    size = payload.total_size if payload.total_size is not None else bundle_total_size(payload.bundle_manifest.model_dump())
+    if size > get_settings().max_upload_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Upload exceeds configured size limit")
     agent = fetch_or_404(session, Agent, principal.agent_id)
     run = resolve_upload_run(session, payload, agent, storage)
     bundle_digest = bundle_manifest_digest(payload.bundle_manifest.model_dump()) if payload.bundle_manifest else None
@@ -861,7 +893,7 @@ async def create_upload_session(
 
 
 @platform_router.get("/upload-sessions/{upload_id}", tags=["agents"])
-async def get_upload_session(upload_id: str, request: Request, session: SessionDep) -> dict:
+def get_upload_session(upload_id: str, request: Request, session: SessionDep) -> dict:
     principal = require_agent(request)
     upload = owned_upload(session, upload_id, principal)
     return upload_session_view(upload)
@@ -876,9 +908,12 @@ async def upload_file_chunk(
 ) -> Response:
     principal = require_agent(request)
     upload = owned_upload(session, upload_id, principal)
+    if upload.state != UploadState.OPEN:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Upload is already completed")
     if upload.bundle_manifest:
         raise HTTPException(status.HTTP_409_CONFLICT, "Bundle uploads require the per-file endpoint")
     await append_request_body(request, Path(upload.temporary_path or ""), upload, upload_offset, upload.total_size or 0)
+    upload.expires_at = datetime.now(timezone.utc) + timedelta(hours=get_settings().upload_session_hours)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"Upload-Offset": str(upload.offset)})
 
@@ -897,6 +932,8 @@ async def upload_bundle_chunk(
 ) -> Response:
     principal = require_agent(request)
     upload = owned_upload(session, upload_id, principal)
+    if upload.state != UploadState.OPEN:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Upload is already completed")
     normalized = safe_relative_path(relative_path).as_posix()
     part = session.scalar(
         select(UploadPart).where(
@@ -908,12 +945,13 @@ async def upload_bundle_chunk(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload part not found")
     await append_request_body(request, Path(part.temporary_path), part, upload_offset, part.total_size)
     upload.offset = sum(item.offset for item in upload.parts)
+    upload.expires_at = datetime.now(timezone.utc) + timedelta(hours=get_settings().upload_session_hours)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"Upload-Offset": str(part.offset)})
 
 
 @platform_router.post("/upload-sessions/{upload_id}/complete", tags=["agents"])
-async def complete_upload_session(
+def complete_upload_session(
     upload_id: str,
     request: Request,
     session: SessionDep,
@@ -922,6 +960,7 @@ async def complete_upload_session(
     principal = require_agent(request)
     upload = owned_upload(session, upload_id, principal)
     if upload.state == UploadState.COMPLETED:
+        cleanup_upload(storage, upload)
         artifact = fetch_or_404(session, Artifact, upload.artifact_id)
         return {
             "upload": upload_session_view(upload),
@@ -954,12 +993,13 @@ async def complete_upload_session(
             artifact_format=upload.format,
             parent_artifact_id=None,
             recipe_id=None,
-            metadata_json=upload.metadata_json,
+            metadata_json={**upload.metadata_json, "upload_session_id": upload.id},
         )
         upload.artifact_id = artifact.id
         upload.state = UploadState.COMPLETED
         upload.offset = stored.byte_size
         session.commit()
+        cleanup_upload(storage, upload)
         return {
             "upload": upload_session_view(upload),
             "artifact": ArtifactRead.model_validate(artifact).model_dump(),
@@ -981,8 +1021,8 @@ async def complete_upload_session(
 
 
 @platform_router.get("/events/outbox", tags=["events"])
-async def list_outbox_events(session: SessionDep, after: datetime | None = None, limit: int = 100) -> list[dict]:
-    query = select(EventOutbox).order_by(EventOutbox.created_at, EventOutbox.id)
+def list_outbox_events(request: Request, session: SessionDep, after: datetime | None = None, limit: int = 100) -> list[dict]:
+    query = select(EventOutbox).where(visibility(request.state.principal, EventOutbox)).order_by(EventOutbox.created_at, EventOutbox.id)
     if after:
         query = query.where(EventOutbox.created_at > after)
     return [
@@ -1001,13 +1041,13 @@ async def list_outbox_events(session: SessionDep, after: datetime | None = None,
 
 
 @platform_router.get("/events/outbox/status", tags=["events"])
-async def outbox_status(session: SessionDep) -> dict:
-    pending = session.scalar(select(func.count(EventOutbox.id)).where(EventOutbox.published_at.is_(None))) or 0
+def outbox_status(request: Request, session: SessionDep) -> dict:
+    pending = session.scalar(select(func.count(EventOutbox.id)).where(EventOutbox.published_at.is_(None), visibility(request.state.principal, EventOutbox))) or 0
     return {"pending": pending, "status": "pending" if pending else "idle"}
 
 
 @platform_router.get("/audit-log/status", tags=["auth"])
-async def audit_status(request: Request, session: SessionDep) -> dict:
+def audit_status(request: Request, session: SessionDep) -> dict:
     require_admin(request)
     latest = session.scalar(select(AuditLog).order_by(AuditLog.created_at.desc()))
     return {
@@ -1018,13 +1058,13 @@ async def audit_status(request: Request, session: SessionDep) -> dict:
 
 
 @platform_router.get("/webhooks", response_model=list[WebhookRead], tags=["webhooks"])
-async def list_webhooks(request: Request, session: SessionDep) -> list[WebhookDestination]:
+def list_webhooks(request: Request, session: SessionDep) -> list[WebhookDestination]:
     require_admin(request)
     return list(session.scalars(select(WebhookDestination).order_by(WebhookDestination.name)))
 
 
 @platform_router.post("/webhooks", status_code=status.HTTP_201_CREATED, tags=["webhooks"])
-async def create_webhook(payload: WebhookCreate, request: Request, session: SessionDep) -> dict:
+def create_webhook(payload: WebhookCreate, request: Request, session: SessionDep) -> dict:
     require_admin(request)
     destination = WebhookDestination(
         **payload.model_dump(),
@@ -1041,7 +1081,7 @@ async def create_webhook(payload: WebhookCreate, request: Request, session: Sess
 
 
 @platform_router.patch("/webhooks/{webhook_id}", tags=["webhooks"])
-async def update_webhook(
+def update_webhook(
     webhook_id: str, payload: WebhookUpdate, request: Request, session: SessionDep
 ) -> dict:
     require_admin(request)
@@ -1063,7 +1103,7 @@ async def update_webhook(
 
 
 @platform_router.delete("/webhooks/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["webhooks"])
-async def delete_webhook(webhook_id: str, request: Request, session: SessionDep) -> Response:
+def delete_webhook(webhook_id: str, request: Request, session: SessionDep) -> Response:
     require_admin(request)
     destination = fetch_or_404(session, WebhookDestination, webhook_id)
     session.delete(destination)
@@ -1074,13 +1114,13 @@ async def delete_webhook(webhook_id: str, request: Request, session: SessionDep)
 @platform_router.get(
     "/webhook-deliveries", response_model=list[WebhookDeliveryRead], tags=["webhooks"]
 )
-async def list_webhook_deliveries(
+def list_webhook_deliveries(
     request: Request, session: SessionDep, status_filter: str | None = None, limit: int = 100
 ) -> list[WebhookDelivery]:
     principal: Principal = request.state.principal
     if not principal.allows("jobs:read") and not principal.allows("admin"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Webhook delivery worker access required")
-    query = select(WebhookDelivery).order_by(WebhookDelivery.created_at, WebhookDelivery.id)
+    query = select(WebhookDelivery).where(visibility(principal, WebhookDelivery)).order_by(WebhookDelivery.created_at, WebhookDelivery.id)
     if status_filter:
         query = query.where(WebhookDelivery.status == status_filter)
     if status_filter in {"pending", "retry"}:
@@ -1092,7 +1132,7 @@ async def list_webhook_deliveries(
 
 
 @platform_router.post("/webhook-deliveries/{delivery_id}/claim", tags=["webhooks"])
-async def claim_webhook_delivery(delivery_id: str, request: Request, session: SessionDep) -> dict:
+def claim_webhook_delivery(delivery_id: str, request: Request, session: SessionDep) -> dict:
     principal: Principal = request.state.principal
     if not principal.allows("jobs:write") and not principal.allows("admin"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Webhook delivery worker access required")
@@ -1158,7 +1198,7 @@ async def claim_webhook_delivery(delivery_id: str, request: Request, session: Se
 
 
 @platform_router.patch("/webhook-deliveries/{delivery_id}", response_model=WebhookDeliveryRead, tags=["webhooks"])
-async def update_webhook_delivery(
+def update_webhook_delivery(
     delivery_id: str, payload: dict, request: Request, session: SessionDep
 ) -> WebhookDelivery:
     principal: Principal = request.state.principal
@@ -1330,16 +1370,43 @@ def safe_relative_path(raw: str) -> PurePosixPath:
     return path
 
 
+def recover_verification(session: Session, upload: UploadSession) -> None:
+    if upload.state not in {UploadState.OPEN, UploadState.VERIFYING}:
+        return
+    artifact = session.scalar(select(Artifact).where(
+        Artifact.run_id == upload.run_id,
+        Artifact.sha256 == upload.expected_sha256,
+        Artifact.metadata_json["upload_session_id"].as_string() == upload.id,
+        Artifact.state == ArtifactState.READY,
+    ))
+    if artifact:
+        upload.artifact_id = artifact.id
+        upload.state = UploadState.COMPLETED
+        upload.offset = artifact.byte_size
+        session.commit()
+        schedule_source_pipeline(session, artifact)
+        settings = get_settings()
+        cleanup_upload(LocalArtifactStorage(settings.storage_root, settings.library_root), upload)
+    elif upload.state == UploadState.VERIFYING:
+        upload.state = UploadState.OPEN
+        upload.expires_at = datetime.now(timezone.utc) + timedelta(hours=get_settings().upload_session_hours)
+        session.commit()
+
+
 def owned_upload(session: Session, upload_id: str, principal: Principal) -> UploadSession:
     upload = fetch_or_404(session, UploadSession, upload_id)
+    session.refresh(upload)
     if upload.agent_id != principal.agent_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Upload session belongs to a different agent")
+    recover_verification(session, upload)
     expires_at = upload.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at <= datetime.now(timezone.utc) and upload.state == UploadState.OPEN:
         upload.state = UploadState.EXPIRED
         session.commit()
+        raise HTTPException(status.HTTP_410_GONE, "Upload session has expired")
+    if upload.state == UploadState.EXPIRED:
         raise HTTPException(status.HTTP_410_GONE, "Upload session has expired")
     if upload.state not in {UploadState.OPEN, UploadState.COMPLETED}:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Upload session is {upload.state}")
@@ -1378,10 +1445,10 @@ async def append_request_body(
                         "Chunk exceeds declared upload size",
                         headers={"Upload-Offset": str(actual_offset)},
                     )
-                handle.write(chunk)
+                await to_thread.run_sync(handle.write, chunk)
                 written += len(chunk)
-            handle.flush()
-            os.fsync(handle.fileno())
+            await to_thread.run_sync(handle.flush)
+            await to_thread.run_sync(os.fsync, handle.fileno())
         except BaseException:
             handle.seek(actual_offset)
             handle.truncate()

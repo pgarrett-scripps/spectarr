@@ -69,3 +69,14 @@ async def hierarchy(client: AsyncClient) -> dict[str, str]:
         "sample_id": sample["id"],
         "run_id": run["id"],
     }
+
+
+@pytest.fixture
+def password_auth(monkeypatch):
+    from spectarr.config import get_settings
+
+    monkeypatch.setenv("SPECTARR_AUTH_ENABLED", "true")
+    monkeypatch.setenv("SPECTARR_AUTH_MODE", "password")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

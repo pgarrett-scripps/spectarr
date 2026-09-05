@@ -1,6 +1,7 @@
-.PHONY: dev up down test backend-test frontend-test services-install services-test typecheck prepare release-check release-rehearsal version-check backup verify-backup restore-test
+.PHONY: dev up down test backend-test frontend-test services-install services-test typecheck prepare release-check release-rehearsal version-check backup verify-backup restore-test backend-check dependency-check
 
-BACKEND_PYTEST := $(if $(wildcard backend/.venv/bin/pytest),cd backend && .venv/bin/pytest,cd backend && uv run --extra dev pytest)
+BACKEND_PYTHON := $(if $(wildcard backend/.venv/bin/python),cd backend && .venv/bin/python,cd backend && uv run --locked --extra dev --extra sdrf python)
+BACKEND_PYTEST := $(if $(wildcard backend/.venv/bin/pytest),cd backend && .venv/bin/pytest,cd backend && uv run --locked --extra dev --extra sdrf pytest)
 SERVICE_PYTHON := services/.venv/bin/python
 MSCONVERT_CLI_SOURCE ?= ../msconvert-cli
 MZMLPY_SOURCE ?= ../mzmlpy
@@ -20,13 +21,20 @@ up: prepare
 down:
 	docker compose down
 
-test: version-check
+test: version-check dependency-check
 	+$(MAKE) --output-sync=target -j$(TEST_JOBS) backend-test frontend-test services-test
+
+dependency-check:
+	python3 scripts/check_dependencies.py
 
 version-check:
 	python3 scripts/check_version.py
 
-backend-test:
+backend-check:
+	$(BACKEND_PYTHON) -m ruff check --config pyproject.toml src tests ../scripts/check_dependencies.py
+	$(BACKEND_PYTHON) -m mypy
+
+backend-test: backend-check
 	$(BACKEND_PYTEST)
 
 frontend-test:
@@ -37,7 +45,7 @@ services-install:
 	test -f "$(MSCONVERT_CLI_SOURCE)/pyproject.toml"
 	test -f "$(MZMLPY_SOURCE)/pyproject.toml"
 	test -f "$(SPXTACULAR_SOURCE)/pyproject.toml"
-	uv pip install --python $(SERVICE_PYTHON) "$(MSCONVERT_CLI_SOURCE)" "$(MZMLPY_SOURCE)" "$(SPXTACULAR_SOURCE)" services/agent services/converter services/extractor services/mcp services/webhooks
+	uv pip install --constraint constraints.txt --python $(SERVICE_PYTHON) "$(MSCONVERT_CLI_SOURCE)" "$(MZMLPY_SOURCE)" "$(SPXTACULAR_SOURCE)" services/agent services/converter services/extractor services/mcp services/webhooks
 
 services-test: services-install
 	PYTHONPATH=services/agent/src $(SERVICE_PYTHON) -m unittest discover -s services/agent/tests

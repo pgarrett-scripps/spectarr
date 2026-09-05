@@ -37,27 +37,7 @@ updates:
         patterns:
           - "*"
   - package-ecosystem: docker
-    directory: /backend
-    schedule:
-      interval: weekly
-  - package-ecosystem: docker
-    directory: /frontend
-    schedule:
-      interval: weekly
-  - package-ecosystem: docker
-    directory: /services/converter
-    schedule:
-      interval: weekly
-  - package-ecosystem: docker
-    directory: /services/extractor
-    schedule:
-      interval: weekly
-  - package-ecosystem: docker
-    directory: /services/mcp
-    schedule:
-      interval: weekly
-  - package-ecosystem: docker
-    directory: /services/webhooks
+    directory: /
     schedule:
       interval: weekly
   - package-ecosystem: github-actions

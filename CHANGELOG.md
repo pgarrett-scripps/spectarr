@@ -4,6 +4,20 @@ All notable changes to Spectarr will be documented in this file. Releases follow
 
 ## Unreleased
 
+### Fixed
+
+- Project membership filters now cover collection endpoints, overview totals, processing batches, events, and webhook delivery listings
+- Viewers and read-scoped API clients can query spectrum catalogs without write access
+- Run browsing and search use server-side filters and pagination, and CSV export includes every matching run
+- Project, experiment, and job selectors fetch all available pages
+- Completed agent uploads release their staging copy, expired uploads resume with the same retry key, and interrupted verification reuses any already committed artifact
+- Periodic storage maintenance reclaims abandoned upload payloads and old unreferenced objects while preserving active work
+- Backup snapshots coordinate database and storage access and verify every ready artifact and vendor-directory member
+- Restore rehearsals explicitly isolate their mounts and disable processing and outbound workers
+- Stable image tags are promoted from the tested candidate digest only after release gates pass
+- Production API dependency constraints match the backend lock, including current Starlette security fixes
+- Blocking API operations and downloads run outside the event loop, token activity writes are throttled, and run pages load related data with bounded query counts
+
 ### Added
 
 - `SPECTARR_STORAGE_DIR` in the release Compose file mounts bulk artifact storage separately from the data directory, so the SQLite database can stay on local disk while artifacts live on large or network storage

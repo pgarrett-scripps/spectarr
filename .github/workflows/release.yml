@@ -12,10 +12,17 @@ permissions:
   id-token: write
   attestations: write
 
+concurrency:
+  group: spectarr-release
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
 
 jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -31,7 +38,10 @@ jobs:
           fi
 
   image:
-    needs: validate
+    needs: [validate, test]
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ steps.names.outputs.image }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -85,9 +95,7 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           push: true
-          tags: |
-            ${{ steps.names.outputs.image }}:${{ steps.names.outputs.version }}
-            ${{ steps.names.outputs.image }}:latest
+          tags: ${{ steps.names.outputs.image }}:candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           build-contexts: |
             msconvert_cli=./distribution/msconvert-cli
             mzmlpy_source=./distribution/mzmlpy
@@ -124,6 +132,7 @@ jobs:
           cp examples/demo.mgf release/bundle/examples/
           cp VERSION CHANGELOG.md SECURITY.md LICENSE NOTICE DEPENDENCIES.env constraints.txt release/bundle/
           cp docs/release-checklist.md release/bundle/
+          cp docs/reliability-and-recovery.md release/bundle/
           tar -C release/bundle -czf "release/spectarr-${version}.tar.gz" .
           (
             cd release
@@ -235,13 +244,38 @@ jobs:
           mkdir install
           tar -C install -xzf spectarr-*.tar.gz
       - name: Rehearse installation, ingestion, backup, and restore
+        env:
+          SPECTARR_IMAGE_REF: ${{ needs.image.outputs.image }}@${{ needs.image.outputs.digest }}
         working-directory: candidate/install
         run: |
           owner=${GITHUB_REPOSITORY_OWNER,,}
           SPECTARR_IMAGE="${REGISTRY}/${owner}/spectarr" scripts/release-rehearsal.sh
 
+  promote:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [smoke, windows-agent, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote the tested digest
+        env:
+          CANDIDATE_IMAGE: ${{ needs.image.outputs.image }}
+          CANDIDATE_DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          docker buildx imagetools create \
+            --tag "$CANDIDATE_IMAGE:$version" \
+            --tag "$CANDIDATE_IMAGE:latest" \
+            "$CANDIDATE_IMAGE@$CANDIDATE_DIGEST"
+
   publish:
-    needs: [smoke, windows-agent]
+    needs: [promote]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8

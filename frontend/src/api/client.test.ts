@@ -269,3 +269,39 @@ describe('API client', () => {
     expect(savedBody.rows[0].values).toEqual(document.rows[0].values)
   })
 })
+
+describe('complete library pagination', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('loads older runs for exports while preserving project and search filters', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      const query = new URL(url, 'http://localhost').searchParams
+      expect(query.get('project_id')).toBe('older-project')
+      expect(query.get('query')).toBe('sample')
+      const second = query.get('offset') === '1'
+      return new Response(JSON.stringify({
+        items: [{ id: second ? 'older-run' : 'newer-run', name: 'sample', artifacts: [] }],
+        total: 2,
+        next_offset: second ? null : 1,
+        experiment_counts: {}
+      }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const runs = await api.runs({ projectId: 'older-project', query: 'sample' })
+    expect(runs.map(run => run.id)).toEqual(['newer-run', 'older-run'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads project selectors beyond the first hundred records', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+      return new Response(JSON.stringify(Array.from({ length: offset === 0 ? 100 : 1 }, (_, index) => ({
+        id: `project-${offset + index}`, name: `Project ${offset + index}`
+      }))))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const projects = await api.projects()
+    expect(projects).toHaveLength(101)
+    expect(projects[100].id).toBe('project-100')
+  })
+})

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     spectrum_reader_url: str | None = None
     spectrum_reader_timeout_seconds: float = 30.0
     dashboard_root: Path | None = None
+    restore_mode: bool = False
 
     @field_validator("storage_root", mode="before")
     @classmethod

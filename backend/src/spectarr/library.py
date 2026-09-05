@@ -168,7 +168,7 @@ class LibraryMaterializer:
     def project_manifest_key(self, project: Project) -> str:
         return (self.project_directory(project) / "spectarr-project.json").as_posix()
 
-    def materialize_artifact(self, artifact: Artifact) -> str:
+    def materialize_artifact(self, artifact: Artifact, *, update_manifests: bool = True) -> str:
         project = artifact.run.experiment.project
         if artifact.library_path:
             library_key = artifact.library_path
@@ -189,8 +189,9 @@ class LibraryMaterializer:
         )
         artifact.library_path = library_key
         artifact.materialization_mode = mode
-        self.write_run_manifest(artifact.run)
-        self.write_project_manifest(project)
+        if update_manifests:
+            self.write_run_manifest(artifact.run)
+            self.write_project_manifest(project)
         return library_key
 
     def artifact_manifest(self, artifact: Artifact, project_directory: Path) -> dict:
@@ -403,11 +404,13 @@ class LibraryMaterializer:
         copied = 0
         linked = 0
         for artifact in artifacts:
-            self.materialize_artifact(artifact)
+            self.materialize_artifact(artifact, update_manifests=False)
             if artifact.materialization_mode == "copy":
                 copied += 1
             else:
                 linked += 1
+        for run in session.scalars(select(Run).order_by(Run.id)):
+            self.write_run_manifest(run)
         for project in session.scalars(select(Project).order_by(Project.name, Project.id)):
             self.write_project_manifest(project)
         self.write_catalog(session)

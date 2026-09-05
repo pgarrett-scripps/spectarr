@@ -25,11 +25,14 @@ then
 fi
 
 mkdir -p "$backup_dir"
-"${compose[@]}" exec -T spectarr spectarr-backup create /data/spectarr.db > "$backup_dir/database.sqlite3"
-"${compose[@]}" exec -T spectarr python -c $'import sys\nimport tarfile\nfrom pathlib import Path\nwith tarfile.open(fileobj=sys.stdout.buffer, mode="w|") as archive:\n    for name in ("storage", ".spectarr"):\n        path = Path("/data") / name\n        if path.exists():\n            archive.add(path, arcname=name)' > "$backup_dir/storage.tar"
+"${compose[@]}" exec -T spectarr spectarr-backup create-set /data > "$backup_dir/snapshot.tar.partial"
+mv "$backup_dir/snapshot.tar.partial" "$backup_dir/snapshot.tar"
+image=$("${compose[@]}" images -q spectarr)
+docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' "$image" > "$backup_dir/IMAGE"
+
 (
   cd "$backup_dir"
-  sha256sum database.sqlite3 storage.tar > SHA256SUMS
+  sha256sum snapshot.tar IMAGE > SHA256SUMS
 )
 
 echo "$backup_dir"

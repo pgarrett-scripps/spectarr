@@ -69,6 +69,8 @@ data/
 
 Back up that directory with the included online backup tool. Restore tests boot the backup as a separate Spectarr instance and verify both the database and artifact storage.
 
+See the [reliability and recovery guide](docs/reliability-and-recovery.md) for upload recovery, backup verification, restore isolation, and dependency maintenance.
+
 ## Quick start
 
 Spectarr targets Linux x86-64 and requires Docker. Start the published image with one command:

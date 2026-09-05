@@ -87,6 +87,58 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export interface RunListQuery {
+  projectId?: string
+  experimentId?: string
+  query?: string
+  assignmentStatus?: string
+  offset?: number
+  limit?: number
+}
+
+export interface RunPage {
+  items: Run[]
+  total: number
+  nextOffset: number | null
+  experimentCounts: Record<string, number>
+}
+
+async function allPages<T>(path: string): Promise<T[]> {
+  const [pathname, search = ''] = path.split('?')
+  const parameters = new URLSearchParams(search)
+  parameters.set('limit', '100')
+  const items: T[] = []
+  let offset = 0
+  while (true) {
+    parameters.set('offset', String(offset))
+    const page = normalizeList(await request<T[] | PaginatedResponse<T>>(`${pathname}?${parameters}`))
+    items.push(...page)
+    if (page.length < 100) return items
+    offset += page.length
+  }
+}
+
+async function runPage(values: RunListQuery = {}): Promise<RunPage> {
+  const parameters = new URLSearchParams({ page: 'true', offset: String(values.offset ?? 0), limit: String(values.limit ?? 50) })
+  if (values.projectId) parameters.set('project_id', values.projectId)
+  if (values.experimentId) parameters.set('experiment_id', values.experimentId)
+  if (values.query) parameters.set('query', values.query)
+  if (values.assignmentStatus) parameters.set('assignment_status', values.assignmentStatus)
+  const page = await request<{ items: unknown[], total: number, next_offset: number | null, experiment_counts: Record<string, number> }>(`/runs?${parameters}`)
+  return { items: page.items.map(item => normalizeRun(item)), total: page.total, nextOffset: page.next_offset, experimentCounts: page.experiment_counts }
+}
+
+async function allRuns(values: RunListQuery = {}): Promise<Run[]> {
+  const items: Run[] = []
+  let offset: number | null = 0
+  while (offset !== null) {
+    const page = await runPage({ ...values, offset, limit: 500 })
+    items.push(...page.items)
+    offset = page.nextOffset
+  }
+  return items
+}
+
 const normalizeList = <T>(value: T[] | PaginatedResponse<T>): T[] => Array.isArray(value) ? value : value.items
 
 type ApiRecord = Record<string, unknown>
@@ -730,7 +782,7 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ scope_type: values.scopeType, scope_ids: values.scopeIds, recipe_ids: values.recipeIds, mode: values.mode, label: values.label })
   })),
-  processingBatches: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/processing-batches')).map(normalizeBatch),
+  processingBatches: async () => (await allPages<unknown>('/processing-batches')).map(normalizeBatch),
   processingBatch: async (id: string) => normalizeBatch(await request(`/processing-batches/${encodeURIComponent(id)}`)),
   retryProcessingBatch: async (id: string) => normalizeBatch(await request(`/processing-batches/${encodeURIComponent(id)}/retry`, { method: 'POST' })),
   cancelProcessingBatch: async (id: string) => normalizeBatch(await request(`/processing-batches/${encodeURIComponent(id)}/cancel`, { method: 'POST' })),
@@ -771,7 +823,8 @@ export const api = {
       }
     } satisfies OverviewData
   },
-  runs: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/runs')).map(item => normalizeRun(item)),
+  runs: allRuns,
+  runPage,
   inbox: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/inbox')).map(item => normalizeRun(item)),
   run: async (id: string) => {
     const encoded = encodeURIComponent(id)
@@ -781,7 +834,7 @@ export const api = {
     ])
     return normalizeRun(run, artifacts.length ? artifacts : undefined)
   },
-  projects: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/projects')).map(normalizeProject),
+  projects: async () => (await allPages<unknown>('/projects')).map(normalizeProject),
   project: async (id: string) => normalizeProject(await request(`/projects/${encodeURIComponent(id)}`)),
   updateProject: async (id: string, values: { name?: string, description?: string, metadata?: Record<string, unknown> }) => normalizeProject(await request(`/projects/${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -819,7 +872,7 @@ export const api = {
   submissionPreview: async (projectId: string) => normalizeSubmission(await request(`/projects/${encodeURIComponent(projectId)}/submission/preview`)),
   downloadProjectSdrf: async (projectId: string) => download(`/projects/${encodeURIComponent(projectId)}/sdrf/export`),
   downloadSubmission: async (projectId: string) => download(`/projects/${encodeURIComponent(projectId)}/submission/export`),
-  experiments: async (projectId?: string) => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>(`/experiments${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`)).map(normalizeExperiment),
+  experiments: async (projectId?: string) => (await allPages<unknown>(`/experiments${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`)).map(normalizeExperiment),
   experimentDeletionPreview: async (id: string): Promise<ExperimentDeletionPreview> => {
     const value = recordValue(await request(`/experiments/${encodeURIComponent(id)}/deletion-preview`))
     return {
@@ -836,7 +889,7 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ name, description: description || null })
   })),
-  jobs: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/jobs')).map(normalizeJob),
+  jobs: async () => (await allPages<unknown>('/jobs')).map(normalizeJob),
   job: async (id: string) => normalizeJob(await request(`/jobs/${encodeURIComponent(id)}`)),
   storage: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/storage')).map(normalizeStorage),
   previewStorageReclaim: async (values: { projectId: string, formats: ConversionFormat[] }): Promise<StorageReclaimPreview> => normalizeStorageReclaim(await request('/storage/reclaim/preview', {
@@ -855,17 +908,17 @@ export const api = {
     sourcePath?: string
     file?: File
   }) => {
-    const projects = await request<Array<{ id: string, name: string }>>('/projects')
+    const projects = await allPages<{ id: string, name: string }>('/projects')
     const project = projects.find(item => item.name === values.projectName) ?? await request<{ id: string, name: string }>('/projects', {
       method: 'POST',
       body: JSON.stringify({ name: values.projectName })
     })
-    const experiments = await request<Array<{ id: string, name: string }>>(`/experiments?project_id=${encodeURIComponent(project.id)}`)
+    const experiments = await allPages<{ id: string, name: string }>(`/experiments?project_id=${encodeURIComponent(project.id)}`)
     const experiment = experiments.find(item => item.name === values.experimentName) ?? await request<{ id: string, name: string }>('/experiments', {
       method: 'POST',
       body: JSON.stringify({ project_id: project.id, name: values.experimentName })
     })
-    const samples = await request<Array<{ id: string, name: string }>>(`/samples?experiment_id=${encodeURIComponent(experiment.id)}`)
+    const samples = await allPages<{ id: string, name: string }>(`/samples?experiment_id=${encodeURIComponent(experiment.id)}`)
     const sample = samples.find(item => item.name === values.sampleName) ?? await request<{ id: string, name: string }>('/samples', {
       method: 'POST',
       body: JSON.stringify({ experiment_id: experiment.id, name: values.sampleName })

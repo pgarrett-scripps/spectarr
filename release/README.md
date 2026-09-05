@@ -44,3 +44,7 @@ scripts/verify-backup.sh /srv/spectarr-backups/spectarr-YYYYMMDDTHHMMSSZ
 ```
 
 Use `scripts/restore-test.sh` with a new directory before relying on a backup operationally.
+
+New backups contain a coordinated `snapshot.tar`, an `IMAGE` reference, and checksums. Verification checks every ready artifact and vendor-directory member in a separate container, so the original instance need not be running. Legacy database and storage archive pairs are also supported. Set `SPECTARR_BACKUP_IMAGE` to a compatible current image when verifying a backup from another Docker host.
+
+Snapshot creation keeps reads available and temporarily returns retryable HTTP 503 responses for API mutations. Schedule large backups during quiet processing periods. Restore rehearsals explicitly isolate their mounts and start with processing and outbound workers disabled. See `reliability-and-recovery.md` in the release bundle for the full procedure.

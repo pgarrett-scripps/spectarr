@@ -2,13 +2,13 @@
 
 ## Automated gate
 
-Every release tag must pass these jobs in order:
+Every release tag must satisfy these gates. Component CI and Linux integration must pass before the candidate image is built. Windows packaging and bundle preparation may run in parallel:
 
 1. Validate that the tag and every package surface match `VERSION`.
-2. Build the Linux x86-64 Spectarr image with SBOM and provenance metadata.
+2. Pass component tests, linting, type checks, dependency consistency checks, and Linux integration. Build a uniquely tagged Linux x86-64 candidate image with SBOM and provenance metadata.
 3. Test the acquisition agent on Windows and build its standalone executable.
 4. Build the unsigned Windows MSI, test installation and removal, then produce the installer checksum.
-5. Pull the versioned images into a clean temporary installation.
+5. Prepare the release bundle and checksums, then pull the candidate image by its exact digest into a clean temporary installation.
 6. Start the single Spectarr container and verify every supervised process.
 7. Bootstrap an administrator through the dashboard HTTP boundary.
 8. Create a project, experiment, sample, and run.
@@ -19,10 +19,10 @@ Every release tag must pass these jobs in order:
 13. Initialize MCP and verify delivery through the signed webhook worker.
 14. Ingest 24 runs through eight concurrent clients.
 15. Restart the single container, then verify extraction and every source checksum.
-16. Create and verify an online SQLite backup.
-17. Boot the backup as an independent instance and verify database and storage health.
+16. Create a coordinated database and storage backup. Verify database integrity and every required artifact checksum, including bundle members.
+17. Boot the backup as an independent instance in restore verification mode, with processing and outbound workers disabled. Verify database health and the restored artifact files.
 18. Complete the browser workflow from project creation through indexed spectra.
-19. Build the release archive and checksums only after the rehearsal succeeds.
+19. Promote the tested candidate digest to the version and `latest` tags only after the rehearsal and Windows checks succeed. Publish the prepared release archive and checksums after promotion.
 
 Windows installers are distributed unsigned. Every release must disclose the expected Windows unknown-publisher warning and publish the MSI checksum.
 
@@ -57,5 +57,6 @@ Run the reusable matrix with `scripts/vendor-acceptance.py`. It fails unless the
 - Confirm first startup generates independent, strong application and worker secrets under the durable data directory.
 - Confirm the converter uses a rootless Docker-compatible socket when available.
 - Confirm a restored database and storage tree can be started independently of the active installation.
+- Confirm the release archive includes the reliability and recovery guide, and that restore verification mode leaves processing and outbound workers stopped.
 - Confirm the GitHub release checksum and image digests match the tested artifacts.
 - Confirm `DEPENDENCIES.env`, `constraints.txt`, and every Dockerfile base image digest match the tested candidate.

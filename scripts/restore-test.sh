@@ -17,8 +17,14 @@ fi
 
 "$script_root/verify-backup.sh" "$backup_dir"
 mkdir -p "$restore_dir"
-tar --extract --file "$backup_dir/storage.tar" --directory "$restore_dir"
-cp "$backup_dir/database.sqlite3" "$restore_dir/spectarr.db"
+if [[ -f "$backup_dir/snapshot.tar" ]]
+then
+  tar --extract --file "$backup_dir/snapshot.tar" --directory "$restore_dir"
+  mv "$restore_dir/database.sqlite3" "$restore_dir/spectarr.db"
+else
+  tar --extract --file "$backup_dir/storage.tar" --directory "$restore_dir"
+  cp "$backup_dir/database.sqlite3" "$restore_dir/spectarr.db"
+fi
 mkdir -p "$restore_dir/imports"
 restore_dir=$(cd "$restore_dir" && pwd)
 restore_env="$restore_dir/.restore-test.env"
@@ -33,14 +39,31 @@ read -r dashboard_port mcp_port < <(
   echo "SPECTARR_UID=$(id -u)"
   echo "SPECTARR_GID=$(id -g)"
   echo "SPECTARR_DATA_DIR=$restore_dir"
+  echo "SPECTARR_STORAGE_DIR=$restore_dir/storage"
   echo "SPECTARR_IMPORT_DIR=$restore_dir/imports"
   echo "SPECTARR_IMPORTS_DIR=$restore_dir/imports"
   echo "SPECTARR_DOCKER_DATA_ROOT=$restore_dir"
   echo "SPECTARR_AUTH_MODE=password"
+  echo "SPECTARR_RESTORE_MODE=true"
   echo "SPECTARR_ALLOW_REMOTE_NO_AUTH=false"
 } > "$restore_env"
 
-restore_compose=(docker compose --project-name "$restore_project")
+restore_compose=(env
+  "SPECTARR_DATA_DIR=$restore_dir"
+  "SPECTARR_STORAGE_DIR=$restore_dir/storage"
+  "SPECTARR_IMPORT_DIR=$restore_dir/imports"
+  "SPECTARR_IMPORTS_DIR=$restore_dir/imports"
+  "SPECTARR_DOCKER_DATA_ROOT=$restore_dir"
+  "SPECTARR_BIND_ADDRESS=127.0.0.1"
+  "SPECTARR_PORT=$dashboard_port"
+  "SPECTARR_MCP_PORT=$mcp_port"
+  "SPECTARR_AUTH_MODE=password"
+  "SPECTARR_AUTH_ENABLED=true"
+  "SPECTARR_ALLOW_REMOTE_NO_AUTH=false"
+  "SPECTARR_RESTORE_MODE=true"
+  "SPECTARR_WORKER_TOKEN="
+  "SPECTARR_SECRET_KEY="
+  docker compose --project-name "$restore_project")
 if [[ -n ${SPECTARR_ENV_FILE:-} ]]
 then
   restore_compose+=(--env-file "$SPECTARR_ENV_FILE")
@@ -81,5 +104,7 @@ then
   exit 1
 fi
 "${restore_compose[@]}" exec -T spectarr python -c $'import json\nimport urllib.request\nfrom pathlib import Path\nsecrets = json.loads(Path("/data/.spectarr/runtime-secrets.json").read_text())\nrequest = urllib.request.Request("http://127.0.0.1:8000/api/v1/system/health", headers={"X-Spectarr-Worker-Token": secrets["SPECTARR_WORKER_TOKEN"]})\nwith urllib.request.urlopen(request, timeout=5) as response:\n    payload = json.load(response)\nif payload.get("database") != "ok" or payload.get("storage") != "ok":\n    raise SystemExit(f"Restored system health failed: {payload}")'
+
+"${restore_compose[@]}" exec -T spectarr spectarr-backup verify-files /data/spectarr.db /data/storage
 
 echo "Restore test started and validated an independent instance in $restore_dir"

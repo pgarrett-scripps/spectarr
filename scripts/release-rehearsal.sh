@@ -48,6 +48,7 @@ smoke_password=$(openssl rand -hex 24)
 
 {
   echo "SPECTARR_VERSION=$version"
+  echo "SPECTARR_IMAGE_REF=${SPECTARR_IMAGE_REF:-}"
   echo "SPECTARR_IMAGE=${SPECTARR_IMAGE:-ghcr.io/pgarrett-scripps/spectarr}"
   echo "SPECTARR_BIND_ADDRESS=127.0.0.1"
   echo "SPECTARR_PORT=$dashboard_port"

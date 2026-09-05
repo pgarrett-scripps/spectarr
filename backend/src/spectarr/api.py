@@ -10,15 +10,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, TypeVar
 from urllib.parse import quote
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import __version__
-from .auth import require_admin
+from .auth import read_operation, require_admin, require_visible, visibility
 from .config import Settings, get_settings
 from .database import get_session
 from .library import LibraryMaterializer
@@ -35,14 +36,12 @@ from .models import (
     JobState,
     ProcessingBatch,
     Project,
-    ProjectMembership,
     Run,
     RunAnnotation,
     RunSample,
     Sample,
     SpectrumCatalog,
     SpectrumCatalogEntry,
-    UserRole,
 )
 from .schemas import (
     AnnotationCreate,
@@ -124,14 +123,14 @@ SessionDep = Annotated[Session, Depends(get_session)]
 ModelT = TypeVar("ModelT")
 
 
-async def settings_dependency() -> Settings:
+def settings_dependency() -> Settings:
     return get_settings()
 
 
 SettingsDep = Annotated[Settings, Depends(settings_dependency)]
 
 
-async def get_storage(settings: SettingsDep) -> LocalArtifactStorage:
+def get_storage(settings: SettingsDep) -> LocalArtifactStorage:
     return LocalArtifactStorage(
         settings.storage_root,
         settings.library_root,
@@ -144,7 +143,7 @@ async def get_storage(settings: SettingsDep) -> LocalArtifactStorage:
 StorageDep = Annotated[LocalArtifactStorage, Depends(get_storage)]
 
 
-async def get_spectrum_reader(settings: SettingsDep) -> SpectrumReaderClient:
+def get_spectrum_reader(settings: SettingsDep) -> SpectrumReaderClient:
     return SpectrumReaderClient(
         settings.spectrum_reader_url,
         settings.worker_token,
@@ -155,7 +154,7 @@ async def get_spectrum_reader(settings: SettingsDep) -> SpectrumReaderClient:
 SpectrumReaderDep = Annotated[SpectrumReaderClient, Depends(get_spectrum_reader)]
 
 
-async def require_worker_token(
+def require_worker_token(
     settings: SettingsDep,
     request: Request,
     x_spectarr_worker_token: Annotated[str | None, Header()] = None,
@@ -189,16 +188,16 @@ def commit_or_conflict(session: Session, instance: ModelT) -> ModelT:
 
 
 @router.get("/system/health", response_model=HealthRead, tags=["system"])
-async def system_health(session: SessionDep, storage: StorageDep) -> HealthRead:
+def system_health(session: SessionDep, storage: StorageDep) -> HealthRead:
     session.execute(text("SELECT 1"))
     storage.check_writable()
     return HealthRead(version=__version__)
 
 
 @router.get("/storage", tags=["system"])
-async def storage_locations(session: SessionDep, storage: StorageDep) -> list[dict]:
+def storage_locations(request: Request, session: SessionDep, storage: StorageDep) -> list[dict]:
     usage = shutil.disk_usage(storage.root)
-    ready = Artifact.state == ArtifactState.READY
+    ready = and_(Artifact.state == ArtifactState.READY, visibility(request.state.principal, Artifact))
     artifact_count = session.scalar(select(func.count(Artifact.id)).where(ready)) or 0
     logical_bytes = session.scalar(select(func.coalesce(func.sum(Artifact.byte_size), 0)).where(ready)) or 0
     return [
@@ -216,12 +215,12 @@ async def storage_locations(session: SessionDep, storage: StorageDep) -> list[di
 
 
 @router.get("/library", tags=["library"])
-async def library_status(session: SessionDep, storage: StorageDep) -> dict:
+def library_status(request: Request, session: SessionDep, storage: StorageDep) -> dict:
     materialized = session.scalar(
-        select(func.count(Artifact.id)).where(Artifact.library_path.is_not(None))
+        select(func.count(Artifact.id)).where(Artifact.library_path.is_not(None), visibility(request.state.principal, Artifact))
     ) or 0
     total = session.scalar(
-        select(func.count(Artifact.id)).where(Artifact.state == ArtifactState.READY)
+        select(func.count(Artifact.id)).where(Artifact.state == ArtifactState.READY, visibility(request.state.principal, Artifact))
     ) or 0
     return {
         "root": str(storage.library),
@@ -237,7 +236,7 @@ async def library_status(session: SessionDep, storage: StorageDep) -> dict:
 
 
 @router.post("/library/rebuild", tags=["library"])
-async def rebuild_library(session: SessionDep, storage: StorageDep) -> dict:
+def rebuild_library(session: SessionDep, storage: StorageDep) -> dict:
     try:
         result = LibraryMaterializer(storage).rebuild(session)
         session.commit()
@@ -248,7 +247,7 @@ async def rebuild_library(session: SessionDep, storage: StorageDep) -> dict:
 
 
 @router.get("/runs/{run_id}/manifest", tags=["library"])
-async def get_run_manifest(run_id: str, session: SessionDep, storage: StorageDep) -> dict:
+def get_run_manifest(run_id: str, session: SessionDep, storage: StorageDep) -> dict:
     run = fetch_or_404(session, Run, run_id)
     key = LibraryMaterializer(storage).run_manifest_key(run)
     manifest = storage.resolve_library(key)
@@ -258,7 +257,7 @@ async def get_run_manifest(run_id: str, session: SessionDep, storage: StorageDep
 
 
 @router.get("/projects/{project_id}/manifest", tags=["library"])
-async def get_project_manifest(project_id: str, session: SessionDep, storage: StorageDep) -> dict:
+def get_project_manifest(project_id: str, session: SessionDep, storage: StorageDep) -> dict:
     project = fetch_or_404(session, Project, project_id)
     key = LibraryMaterializer(storage).project_manifest_key(project)
     manifest = storage.resolve_library(key)
@@ -268,7 +267,7 @@ async def get_project_manifest(project_id: str, session: SessionDep, storage: St
 
 
 @router.get("/projects/{project_id}/library", tags=["library"])
-async def get_project_library(project_id: str, session: SessionDep, storage: StorageDep) -> dict:
+def get_project_library(project_id: str, session: SessionDep, storage: StorageDep) -> dict:
     project = fetch_or_404(session, Project, project_id)
     materializer = LibraryMaterializer(storage)
     project_directory = materializer.project_directory(project)
@@ -299,16 +298,17 @@ async def get_project_library(project_id: str, session: SessionDep, storage: Sto
 
 
 @router.get("/overview", tags=["system"])
-async def overview(session: SessionDep, storage: StorageDep) -> dict:
-    runs = list(session.scalars(select(Run).order_by(Run.created_at.desc()).limit(8)))
-    jobs = list(session.scalars(select(Job).order_by(Job.created_at.desc()).limit(8)))
-    projects = list(session.scalars(select(Project).order_by(Project.updated_at.desc()).limit(8)))
-    locations = await storage_locations(session, storage)
+def overview(request: Request, session: SessionDep, storage: StorageDep) -> dict:
+    runs = list(session.scalars(select(Run).where(visibility(request.state.principal, Run)).order_by(Run.created_at.desc()).limit(8)))
+    jobs = list(session.scalars(select(Job).where(visibility(request.state.principal, Job)).order_by(Job.created_at.desc()).limit(8)))
+    projects = list(session.scalars(select(Project).where(visibility(request.state.principal, Project)).order_by(Project.updated_at.desc()).limit(8)))
+    locations = storage_locations(request, session, storage)
     queue_depth = session.scalar(
-        select(func.count(Job.id)).where(Job.state.in_([JobState.QUEUED, JobState.RUNNING]))
+        select(func.count(Job.id)).where(visibility(request.state.principal, Job), Job.state.in_([JobState.QUEUED, JobState.RUNNING]))
     ) or 0
     active_workers = session.scalar(
         select(func.count(func.distinct(Job.worker_id))).where(
+            visibility(request.state.principal, Job),
             Job.state == JobState.RUNNING,
             Job.lease_expires_at > datetime.now(timezone.utc),
         )
@@ -316,7 +316,7 @@ async def overview(session: SessionDep, storage: StorageDep) -> dict:
     format_counts = {
         str(format_name): count
         for format_name, count in session.execute(
-            select(Artifact.format, func.count(Artifact.id)).group_by(Artifact.format)
+            select(Artifact.format, func.count(Artifact.id)).where(visibility(request.state.principal, Artifact)).group_by(Artifact.format)
         )
     }
     return {
@@ -331,15 +331,15 @@ async def overview(session: SessionDep, storage: StorageDep) -> dict:
             "version": __version__,
         },
         "stats": {
-            "runs": session.scalar(select(func.count(Run.id))) or 0,
-            "artifacts": session.scalar(select(func.count(Artifact.id))) or 0,
+            "runs": session.scalar(select(func.count(Run.id)).where(visibility(request.state.principal, Run))) or 0,
+            "artifacts": session.scalar(select(func.count(Artifact.id)).where(visibility(request.state.principal, Artifact))) or 0,
             "formatCounts": format_counts,
         },
     }
 
 
 @router.post("/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED, tags=["projects"])
-async def create_project(payload: ProjectCreate, session: SessionDep, storage: StorageDep) -> Project:
+def create_project(payload: ProjectCreate, session: SessionDep, storage: StorageDep) -> Project:
     project = commit_or_conflict(session, Project(**payload.model_dump()))
     materializer = LibraryMaterializer(storage)
     materializer.write_project_manifest(project)
@@ -348,24 +348,21 @@ async def create_project(payload: ProjectCreate, session: SessionDep, storage: S
 
 
 @router.get("/projects", tags=["projects"])
-async def list_projects(
+def list_projects(
     request: Request, session: SessionDep, offset: int = 0, limit: int = Query(100, ge=1, le=500)
 ) -> list[dict]:
-    query = select(Project).order_by(Project.name)
-    principal = request.state.principal
-    if principal.role == UserRole.VIEWER and principal.user_id:
-        query = query.join(ProjectMembership).where(ProjectMembership.user_id == principal.user_id)
+    query = select(Project).where(visibility(request.state.principal, Project)).order_by(Project.name, Project.id)
     projects = list(session.scalars(query.offset(offset).limit(limit)))
     return [project_view(project) for project in projects]
 
 
 @router.get("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
-async def get_project(project_id: str, session: SessionDep) -> Project:
+def get_project(project_id: str, session: SessionDep) -> Project:
     return fetch_or_404(session, Project, project_id)
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
-async def update_project(
+def update_project(
     project_id: str,
     payload: ProjectUpdate,
     session: SessionDep,
@@ -392,12 +389,12 @@ async def update_project(
 
 
 @router.get("/sdrf/templates", tags=["sdrf"])
-async def list_sdrf_templates() -> dict:
+def list_sdrf_templates() -> dict:
     return {"specification_version": "v1.1.0", "templates": COMMON_TEMPLATES}
 
 
 @router.get("/projects/{project_id}/sdrf", tags=["sdrf"])
-async def get_project_sdrf(project_id: str, session: SessionDep) -> dict:
+def get_project_sdrf(project_id: str, session: SessionDep) -> dict:
     project = fetch_or_404(session, Project, project_id)
     if project.sdrf_document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This project does not have an SDRF document")
@@ -405,7 +402,7 @@ async def get_project_sdrf(project_id: str, session: SessionDep) -> dict:
 
 
 @router.put("/projects/{project_id}/sdrf", tags=["sdrf"])
-async def put_project_sdrf(
+def put_project_sdrf(
     project_id: str,
     payload: SdrfDocumentWrite,
     session: SessionDep,
@@ -426,7 +423,7 @@ async def put_project_sdrf(
 
 
 @router.post("/projects/{project_id}/sdrf/import", tags=["sdrf"])
-async def import_project_sdrf(
+def import_project_sdrf(
     project_id: str,
     session: SessionDep,
     storage: StorageDep,
@@ -434,7 +431,7 @@ async def import_project_sdrf(
     synchronize: Annotated[bool, Form()] = True,
 ) -> dict:
     project = fetch_or_404(session, Project, project_id)
-    content = await file.read(50 * 1024 * 1024 + 1)
+    content = file.file.read(50 * 1024 * 1024 + 1)
     columns, rows = parse_sdrf(content)
     document = replace_document(
         session,
@@ -449,7 +446,7 @@ async def import_project_sdrf(
 
 
 @router.post("/projects/{project_id}/sdrf/generate", tags=["sdrf"])
-async def generate_project_sdrf(project_id: str, session: SessionDep, storage: StorageDep) -> dict:
+def generate_project_sdrf(project_id: str, session: SessionDep, storage: StorageDep) -> dict:
     project = fetch_or_404(session, Project, project_id)
     document = generate_document(session, project)
     LibraryMaterializer(storage).write_project_manifest(project)
@@ -457,7 +454,7 @@ async def generate_project_sdrf(project_id: str, session: SessionDep, storage: S
 
 
 @router.post("/projects/{project_id}/sdrf/validate", tags=["sdrf"])
-async def validate_project_sdrf(
+def validate_project_sdrf(
     project_id: str,
     payload: SdrfValidationRequest,
     session: SessionDep,
@@ -477,7 +474,7 @@ async def validate_project_sdrf(
 
 
 @router.get("/projects/{project_id}/sdrf/export", tags=["sdrf"])
-async def export_project_sdrf(project_id: str, session: SessionDep) -> Response:
+def export_project_sdrf(project_id: str, session: SessionDep) -> Response:
     project = fetch_or_404(session, Project, project_id)
     document = project.sdrf_document
     if document is None:
@@ -495,19 +492,19 @@ async def export_project_sdrf(project_id: str, session: SessionDep) -> Response:
     response_model=SubmissionPreviewRead,
     tags=["sdrf"],
 )
-async def preview_submission(project_id: str, session: SessionDep) -> dict:
+def preview_submission(project_id: str, session: SessionDep) -> dict:
     return submission_preview(fetch_or_404(session, Project, project_id))
 
 
 @router.get("/projects/{project_id}/submission/export", tags=["sdrf"])
-async def export_submission(
+def export_submission(
     project_id: str,
     session: SessionDep,
     storage: StorageDep,
 ) -> StreamingResponse:
     project = fetch_or_404(session, Project, project_id)
     package = build_submission_zip(project, storage)
-    async def content_stream():
+    def content_stream():
         try:
             with package.open("rb") as handle:
                 while chunk := handle.read(8 * 1024 * 1024):
@@ -529,7 +526,7 @@ async def export_submission(
 @router.post(
     "/experiments", response_model=ExperimentRead, status_code=status.HTTP_201_CREATED, tags=["experiments"]
 )
-async def create_experiment(
+def create_experiment(
     payload: ExperimentCreate, session: SessionDep, storage: StorageDep
 ) -> Experiment:
     project = fetch_or_404(session, Project, payload.project_id)
@@ -541,20 +538,21 @@ async def create_experiment(
 
 
 @router.get("/experiments", response_model=list[ExperimentRead], tags=["experiments"])
-async def list_experiments(
+def list_experiments(
+    request: Request,
     session: SessionDep,
     project_id: str | None = None,
     offset: int = 0,
     limit: int = Query(100, ge=1, le=500),
 ) -> list[Experiment]:
-    query = select(Experiment).order_by(Experiment.created_at.desc())
+    query = select(Experiment).where(visibility(request.state.principal, Experiment)).order_by(Experiment.created_at.desc(), Experiment.id)
     if project_id:
         query = query.where(Experiment.project_id == project_id)
     return list(session.scalars(query.offset(offset).limit(limit)))
 
 
 @router.get("/experiments/{experiment_id}", response_model=ExperimentRead, tags=["experiments"])
-async def get_experiment(experiment_id: str, session: SessionDep) -> Experiment:
+def get_experiment(experiment_id: str, session: SessionDep) -> Experiment:
     return fetch_or_404(session, Experiment, experiment_id)
 
 
@@ -563,7 +561,7 @@ async def get_experiment(experiment_id: str, session: SessionDep) -> Experiment:
     response_model=ExperimentDeletionPreview,
     tags=["experiments"],
 )
-async def preview_experiment_deletion(
+def preview_experiment_deletion(
     experiment_id: str, request: Request, session: SessionDep
 ) -> dict:
     require_admin(request)
@@ -572,7 +570,7 @@ async def preview_experiment_deletion(
 
 
 @router.delete("/experiments/{experiment_id}", tags=["experiments"])
-async def remove_experiment(
+def remove_experiment(
     experiment_id: str,
     request: Request,
     session: SessionDep,
@@ -596,9 +594,10 @@ async def remove_experiment(
     response_model=StorageReclaimRead,
     tags=["storage"],
 )
-async def preview_storage_reclaim(
-    payload: DerivedPurgePreviewRequest, session: SessionDep
+def preview_storage_reclaim(
+    payload: DerivedPurgePreviewRequest, request: Request, session: SessionDep
 ) -> dict:
+    require_visible(session, request.state.principal, {"project": Project, "experiments": Experiment, "runs": Run}[payload.scope_type], payload.scope_ids, write=True)
     return preview_derived_purge(session, payload)
 
 
@@ -607,13 +606,14 @@ async def preview_storage_reclaim(
     response_model=StorageReclaimRead,
     tags=["storage"],
 )
-async def reclaim_storage(
+def reclaim_storage(
     payload: DerivedPurgeRequest,
     request: Request,
     session: SessionDep,
     storage: StorageDep,
 ) -> dict:
     principal = request.state.principal
+    require_visible(session, principal, {"project": Project, "experiments": Experiment, "runs": Run}[payload.scope_type], payload.scope_ids, write=True)
     return purge_derived_artifacts(
         session,
         storage,
@@ -624,48 +624,56 @@ async def reclaim_storage(
 
 
 @router.post("/samples", response_model=SampleRead, status_code=status.HTTP_201_CREATED, tags=["samples"])
-async def create_sample(payload: SampleCreate, session: SessionDep) -> Sample:
+def create_sample(payload: SampleCreate, session: SessionDep) -> Sample:
     fetch_or_404(session, Experiment, payload.experiment_id)
     return commit_or_conflict(session, Sample(**payload.model_dump()))
 
 
 @router.get("/samples", response_model=list[SampleRead], tags=["samples"])
-async def list_samples(
+def list_samples(
+    request: Request,
     session: SessionDep,
     experiment_id: str | None = None,
     offset: int = 0,
     limit: int = Query(100, ge=1, le=500),
 ) -> list[Sample]:
-    query = select(Sample).order_by(Sample.created_at.desc())
+    query = select(Sample).where(visibility(request.state.principal, Sample)).order_by(Sample.created_at.desc(), Sample.id)
     if experiment_id:
         query = query.where(Sample.experiment_id == experiment_id)
     return list(session.scalars(query.offset(offset).limit(limit)))
 
 
 @router.get("/samples/{sample_id}", response_model=SampleRead, tags=["samples"])
-async def get_sample(sample_id: str, session: SessionDep) -> Sample:
+def get_sample(sample_id: str, session: SessionDep) -> Sample:
     return fetch_or_404(session, Sample, sample_id)
 
 
 @router.post(
     "/instruments", response_model=InstrumentRead, status_code=status.HTTP_201_CREATED, tags=["instruments"]
 )
-async def create_instrument(payload: InstrumentCreate, session: SessionDep) -> Instrument:
+def create_instrument(payload: InstrumentCreate, session: SessionDep) -> Instrument:
     return commit_or_conflict(session, Instrument(**payload.model_dump()))
 
 
 @router.get("/instruments", response_model=list[InstrumentRead], tags=["instruments"])
-async def list_instruments(session: SessionDep) -> list[Instrument]:
+def list_instruments(session: SessionDep) -> list[Instrument]:
     return list(session.scalars(select(Instrument).order_by(Instrument.name)))
 
 
 @router.get("/instruments/{instrument_id}", response_model=InstrumentRead, tags=["instruments"])
-async def get_instrument(instrument_id: str, session: SessionDep) -> Instrument:
+def get_instrument(instrument_id: str, session: SessionDep) -> Instrument:
     return fetch_or_404(session, Instrument, instrument_id)
 
 
 @router.post("/runs", response_model=RunRead, status_code=status.HTTP_201_CREATED, tags=["runs"])
-async def create_run(payload: RunCreate, session: SessionDep, storage: StorageDep) -> Run:
+def create_run(
+    payload: RunCreate,
+    request: Request,
+    session: SessionDep,
+    storage: StorageDep,
+    idempotency_key: Annotated[UUID | None, Header()] = None,
+) -> Run:
+    require_visible(session, request.state.principal, Experiment, [payload.experiment_id], write=True)
     experiment = fetch_or_404(session, Experiment, payload.experiment_id)
     if payload.sample_id:
         sample = fetch_or_404(session, Sample, payload.sample_id)
@@ -682,9 +690,14 @@ async def create_run(payload: RunCreate, session: SessionDep, storage: StorageDe
     values = payload.model_dump(exclude={"samples"})
     if linked_samples and not values.get("sample_id"):
         values["sample_id"] = linked_samples[0][0].id
-    run = Run(**values)
+    run_id = import_record_id(request, idempotency_key, "run")
+    run = session.get(Run, run_id) if run_id else None
+    if run is not None:
+        validate_run_retry(run, payload, values)
+        write_created_run_manifests(session, storage, run)
+        return run
+    run = Run(**values, **({"id": run_id} if run_id else {}))
     session.add(run)
-    session.flush()
     if payload.sample_id:
         session.add(RunSample(run=run, sample_id=payload.sample_id, position=0))
     else:
@@ -703,60 +716,118 @@ async def create_run(payload: RunCreate, session: SessionDep, storage: StorageDe
         session.commit()
     except IntegrityError as error:
         session.rollback()
+        existing = session.get(Run, run_id) if run_id else None
+        if existing is not None:
+            validate_run_retry(existing, payload, values)
+            write_created_run_manifests(session, storage, existing)
+            return existing
         raise HTTPException(status.HTTP_409_CONFLICT, "Run or sample relationship already exists") from error
     session.refresh(run)
+    write_created_run_manifests(session, storage, run)
+    return run
+
+
+def import_record_id(request: Request, key: UUID | None, kind: str) -> str | None:
+    if key is None:
+        return None
+    principal = request.state.principal
+    return str(uuid5(NAMESPACE_URL, f"spectarr:{kind}:{principal.actor_type}:{principal.actor_id}:{key}"))
+
+
+def validate_run_retry(run: Run, payload: RunCreate, values: dict) -> None:
+    for key, value in values.items():
+        actual = getattr(run, key)
+        if key == "metadata_json":
+            actual = {name: actual.get(name) for name in value}
+        if isinstance(value, datetime) and isinstance(actual, datetime):
+            actual = actual.replace(tzinfo=None)
+            value = value.replace(tzinfo=None)
+        if actual != value:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Import key already belongs to a different run request")
+    if payload.samples:
+        actual_samples = [
+            {key: getattr(link, key) for key in item.model_dump()}
+            for link, item in zip(run.sample_links, payload.samples)
+        ]
+        if len(run.sample_links) != len(payload.samples) or actual_samples != [item.model_dump() for item in payload.samples]:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Import key already belongs to different sample assignments")
+
+
+def write_created_run_manifests(session: Session, storage: LocalArtifactStorage, run: Run) -> None:
     materializer = LibraryMaterializer(storage)
     materializer.write_run_manifest(run)
     materializer.write_project_manifest(run.experiment.project)
     materializer.write_catalog(session)
-    return run
 
 
 @router.get("/runs", tags=["runs"])
-async def list_runs(
+def list_runs(
     request: Request,
     session: SessionDep,
+    project_id: str | None = None,
     experiment_id: str | None = None,
     sample_id: str | None = None,
     query: str | None = None,
     assignment_status: str | None = None,
-    offset: int = 0,
+    offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-) -> list[dict]:
-    statement = select(Run).order_by(Run.created_at.desc())
-    principal = request.state.principal
-    if principal.role == UserRole.VIEWER and principal.user_id:
-        statement = (
-            statement.join(Experiment, Run.experiment_id == Experiment.id)
-            .join(ProjectMembership, ProjectMembership.project_id == Experiment.project_id)
-            .where(ProjectMembership.user_id == principal.user_id)
-        )
-    if experiment_id:
-        statement = statement.where(Run.experiment_id == experiment_id)
+    page: bool = False,
+) -> list[dict] | dict:
+    statement = select(Run).where(visibility(request.state.principal, Run))
+    if project_id:
+        statement = statement.where(Run.experiment.has(project_id=project_id))
     if sample_id:
         statement = statement.where(or_(Run.sample_id == sample_id, Run.sample_links.any(sample_id=sample_id)))
-    if query:
-        statement = statement.where(Run.name.ilike(f"%{query}%"))
+    if query and query.strip():
+        term = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{term}%"
+        def matches(column):
+            return column.ilike(pattern, escape="\\")
+        statement = statement.where(or_(
+            matches(Run.name),
+            Run.experiment.has(matches(Experiment.name)),
+            Run.experiment.has(Experiment.project.has(matches(Project.name))),
+            Run.sample.has(matches(Sample.name)),
+            Run.sample_links.any(RunSample.sample.has(matches(Sample.name))),
+            Run.instrument.has(matches(Instrument.name)),
+        ))
     if assignment_status:
         statement = statement.where(Run.assignment_status == assignment_status)
-    return [run_view(run) for run in session.scalars(statement.offset(offset).limit(limit))]
+    counts = {}
+    if page:
+        counts = dict(session.execute(
+            select(Run.experiment_id, func.count(Run.id))
+            .where(Run.id.in_(statement.with_only_columns(Run.id)))
+            .group_by(Run.experiment_id)
+        ).all())
+    if experiment_id:
+        statement = statement.where(Run.experiment_id == experiment_id)
+    total = session.scalar(select(func.count()).select_from(statement.subquery())) if page else None
+    rows = [run_view(run) for run in session.scalars(
+        statement.options(
+            joinedload(Run.experiment).joinedload(Experiment.project),
+            joinedload(Run.sample),
+            joinedload(Run.instrument),
+            selectinload(Run.sample_links).joinedload(RunSample.sample),
+            selectinload(Run.artifacts).selectinload(Artifact.extraction_results),
+            selectinload(Run.artifacts).selectinload(Artifact.jobs_as_input),
+        ).order_by(Run.created_at.desc(), Run.id).offset(offset).limit(limit)
+    )]
+    if page:
+        return {"items": rows, "total": total, "next_offset": offset + len(rows) if offset + len(rows) < total else None, "experiment_counts": counts}
+    return rows
 
 
 @router.get("/inbox", tags=["runs"])
-async def list_inbox(request: Request, session: SessionDep) -> list[dict]:
-    statement = select(Run).where(Run.assignment_status == "needs_assignment").order_by(Run.created_at.desc())
-    principal = request.state.principal
-    if principal.role == UserRole.VIEWER and principal.user_id:
-        statement = (
-            statement.join(Experiment, Run.experiment_id == Experiment.id)
-            .join(ProjectMembership, ProjectMembership.project_id == Experiment.project_id)
-            .where(ProjectMembership.user_id == principal.user_id)
-        )
+def list_inbox(request: Request, session: SessionDep) -> list[dict]:
+    statement = select(Run).where(
+        Run.assignment_status == "needs_assignment", visibility(request.state.principal, Run)
+    ).order_by(Run.created_at.desc(), Run.id)
     return [run_view(run) for run in session.scalars(statement)]
 
 
 @router.post("/runs/bulk-assignment", tags=["runs"])
-async def bulk_assign_runs(
+def bulk_assign_runs(
     payload: BulkRunAssignment,
     request: Request,
     session: SessionDep,
@@ -772,7 +843,7 @@ async def bulk_assign_runs(
 
 
 @router.patch("/runs/{run_id}/assignment", tags=["runs"])
-async def assign_run(
+def assign_run(
     run_id: str,
     payload: RunAssignmentUpdate,
     request: Request,
@@ -784,19 +855,19 @@ async def assign_run(
 
 
 @router.get("/runs/{run_id}", tags=["runs"])
-async def get_run(run_id: str, session: SessionDep) -> dict:
+def get_run(run_id: str, session: SessionDep) -> dict:
     return run_view(fetch_or_404(session, Run, run_id))
 
 
 @router.post("/recipes", response_model=RecipeRead, status_code=status.HTTP_201_CREATED, tags=["processing"])
-async def create_recipe(payload: RecipeCreate, session: SessionDep) -> ConversionRecipe:
+def create_recipe(payload: RecipeCreate, session: SessionDep) -> ConversionRecipe:
     values = payload.model_dump()
     values["parameters"] = payload.parameters.model_dump(exclude_none=True)
     return commit_or_conflict(session, ConversionRecipe(**values))
 
 
 @router.get("/recipes", response_model=list[RecipeRead], tags=["processing"])
-async def list_recipes(session: SessionDep, enabled: bool | None = None) -> list[ConversionRecipe]:
+def list_recipes(session: SessionDep, enabled: bool | None = None) -> list[ConversionRecipe]:
     ensure_builtin_profiles(session)
     query = select(ConversionRecipe).order_by(ConversionRecipe.name)
     if enabled is not None:
@@ -805,12 +876,12 @@ async def list_recipes(session: SessionDep, enabled: bool | None = None) -> list
 
 
 @router.get("/recipes/{recipe_id}", response_model=RecipeRead, tags=["processing"])
-async def get_recipe(recipe_id: str, session: SessionDep) -> ConversionRecipe:
+def get_recipe(recipe_id: str, session: SessionDep) -> ConversionRecipe:
     return fetch_or_404(session, ConversionRecipe, recipe_id)
 
 
 @router.patch("/recipes/{recipe_id}", response_model=RecipeRead, tags=["processing"])
-async def update_recipe(
+def update_recipe(
     recipe_id: str,
     payload: RecipeUpdate,
     request: Request,
@@ -854,13 +925,14 @@ async def update_recipe(
     response_model=ProcessingBatchPreview,
     tags=["processing"],
 )
-async def preview_processing_batch(
+def preview_processing_batch(
     payload: ProcessingBatchRequest,
     request: Request,
     session: SessionDep,
 ) -> dict:
     if not request.state.principal.allows("jobs:write"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Batch processing requires jobs:write")
+    require_visible(session, request.state.principal, {"project": Project, "experiments": Experiment, "runs": Run}[payload.scope_type], payload.scope_ids, write=True)
     return preview_batch(session, payload)
 
 
@@ -870,7 +942,7 @@ async def preview_processing_batch(
     status_code=status.HTTP_202_ACCEPTED,
     tags=["processing"],
 )
-async def queue_processing_batch(
+def queue_processing_batch(
     payload: ProcessingBatchRequest,
     request: Request,
     session: SessionDep,
@@ -878,18 +950,20 @@ async def queue_processing_batch(
     principal = request.state.principal
     if not principal.allows("jobs:write"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Batch processing requires jobs:write")
+    require_visible(session, request.state.principal, {"project": Project, "experiments": Experiment, "runs": Run}[payload.scope_type], payload.scope_ids, write=True)
     batch = create_processing_batch(session, payload, principal.user_id or principal.actor_id)
     return batch_view(batch)
 
 
 @router.get("/processing-batches", response_model=list[ProcessingBatchRead], tags=["processing"])
-async def list_processing_batches(
+def list_processing_batches(
+    request: Request,
     session: SessionDep,
     offset: int = 0,
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
     batches = session.scalars(
-        select(ProcessingBatch).order_by(ProcessingBatch.created_at.desc()).offset(offset).limit(limit)
+        select(ProcessingBatch).where(visibility(request.state.principal, ProcessingBatch)).order_by(ProcessingBatch.created_at.desc(), ProcessingBatch.id).offset(offset).limit(limit)
     )
     return [batch_view(batch, include_items=False) for batch in batches]
 
@@ -899,7 +973,7 @@ async def list_processing_batches(
     response_model=ProcessingBatchRead,
     tags=["processing"],
 )
-async def get_processing_batch(batch_id: str, session: SessionDep) -> dict:
+def get_processing_batch(batch_id: str, session: SessionDep) -> dict:
     return batch_view(fetch_or_404(session, ProcessingBatch, batch_id))
 
 
@@ -908,7 +982,7 @@ async def get_processing_batch(batch_id: str, session: SessionDep) -> dict:
     response_model=ProcessingBatchRead,
     tags=["processing"],
 )
-async def retry_batch(batch_id: str, request: Request, session: SessionDep) -> dict:
+def retry_batch(batch_id: str, request: Request, session: SessionDep) -> dict:
     if not request.state.principal.allows("jobs:write"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Batch retry requires jobs:write")
     batch = retry_processing_batch(session, fetch_or_404(session, ProcessingBatch, batch_id))
@@ -920,7 +994,7 @@ async def retry_batch(batch_id: str, request: Request, session: SessionDep) -> d
     response_model=ProcessingBatchRead,
     tags=["processing"],
 )
-async def cancel_batch(batch_id: str, request: Request, session: SessionDep) -> dict:
+def cancel_batch(batch_id: str, request: Request, session: SessionDep) -> dict:
     if not request.state.principal.allows("jobs:write"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Batch cancellation requires jobs:write")
     batch = cancel_processing_batch(session, fetch_or_404(session, ProcessingBatch, batch_id))
@@ -928,13 +1002,14 @@ async def cancel_batch(batch_id: str, request: Request, session: SessionDep) -> 
 
 
 @router.get("/runs/{run_id}/artifacts", response_model=list[ArtifactRead], tags=["artifacts"])
-async def list_run_artifacts(run_id: str, session: SessionDep) -> list[Artifact]:
+def list_run_artifacts(run_id: str, session: SessionDep) -> list[Artifact]:
     fetch_or_404(session, Run, run_id)
     return list(session.scalars(select(Artifact).where(Artifact.run_id == run_id).order_by(Artifact.created_at)))
 
 
 @router.get("/artifacts", response_model=list[ArtifactRead], tags=["artifacts"])
-async def list_artifacts(
+def list_artifacts(
+    request: Request,
     session: SessionDep,
     run_id: str | None = None,
     role: ArtifactRole | None = None,
@@ -943,7 +1018,7 @@ async def list_artifacts(
     offset: int = 0,
     limit: int = Query(100, ge=1, le=500),
 ) -> list[Artifact]:
-    query = select(Artifact).order_by(Artifact.updated_at, Artifact.id)
+    query = select(Artifact).where(visibility(request.state.principal, Artifact)).order_by(Artifact.updated_at, Artifact.id, Artifact.id)
     if run_id:
         query = query.where(Artifact.run_id == run_id)
     if role:
@@ -956,7 +1031,7 @@ async def list_artifacts(
 
 
 @router.get("/artifacts/{artifact_id}", response_model=ArtifactRead, tags=["artifacts"])
-async def get_artifact(artifact_id: str, session: SessionDep) -> Artifact:
+def get_artifact(artifact_id: str, session: SessionDep) -> Artifact:
     return fetch_or_404(session, Artifact, artifact_id)
 
 
@@ -1054,7 +1129,7 @@ def _decode_spectrum_cursor(cursor: str, sort: str, direction: str) -> dict:
     status_code=status.HTTP_201_CREATED,
     tags=["spectra"],
 )
-async def begin_spectrum_catalog(
+def begin_spectrum_catalog(
     artifact_id: str,
     payload: SpectrumCatalogCreate,
     session: SessionDep,
@@ -1094,7 +1169,7 @@ async def begin_spectrum_catalog(
     status_code=status.HTTP_202_ACCEPTED,
     tags=["spectra"],
 )
-async def append_spectrum_catalog_entries(
+def append_spectrum_catalog_entries(
     artifact_id: str,
     catalog_id: str,
     payload: SpectrumCatalogBatch,
@@ -1127,7 +1202,7 @@ async def append_spectrum_catalog_entries(
     "/artifacts/{artifact_id}/spectrum-catalogs/{catalog_id}/complete",
     tags=["spectra"],
 )
-async def complete_spectrum_catalog(
+def complete_spectrum_catalog(
     artifact_id: str,
     catalog_id: str,
     payload: SpectrumCatalogComplete,
@@ -1175,7 +1250,7 @@ async def complete_spectrum_catalog(
     "/artifacts/{artifact_id}/spectrum-catalogs/{catalog_id}/fail",
     tags=["spectra"],
 )
-async def fail_spectrum_catalog(
+def fail_spectrum_catalog(
     artifact_id: str,
     catalog_id: str,
     payload: SpectrumCatalogFail,
@@ -1199,7 +1274,7 @@ async def fail_spectrum_catalog(
 
 
 @router.get("/artifacts/{artifact_id}/spectrum-catalog", tags=["spectra"])
-async def spectrum_catalog_status(artifact_id: str, session: SessionDep) -> dict:
+def spectrum_catalog_status(artifact_id: str, session: SessionDep) -> dict:
     fetch_or_404(session, Artifact, artifact_id)
     catalog = _active_spectrum_catalog(session, artifact_id)
     if catalog:
@@ -1220,7 +1295,8 @@ async def spectrum_catalog_status(artifact_id: str, session: SessionDep) -> dict
 
 
 @router.post("/artifacts/{artifact_id}/spectra/query", tags=["spectra"])
-async def query_artifact_spectra(
+@read_operation
+def query_artifact_spectra(
     artifact_id: str,
     payload: SpectrumQuery,
     session: SessionDep,
@@ -1482,7 +1558,7 @@ async def get_artifact_spectrum(
 
 
 @router.get("/artifacts/{artifact_id}/download", tags=["artifacts"])
-async def download_artifact(artifact_id: str, session: SessionDep, storage: StorageDep):
+def download_artifact(artifact_id: str, session: SessionDep, storage: StorageDep):
     artifact = fetch_or_404(session, Artifact, artifact_id)
     if artifact.state == ArtifactState.MISSING:
         raise HTTPException(status.HTTP_410_GONE, "Artifact content was purged and can be regenerated")
@@ -1494,7 +1570,7 @@ async def download_artifact(artifact_id: str, session: SessionDep, storage: Stor
             status.HTTP_409_CONFLICT,
             "Directory bundles must be accessed through their managed storage location",
         )
-    async def content_stream():
+    def content_stream():
         with path.open("rb") as handle:
             while chunk := handle.read(8 * 1024 * 1024):
                 yield chunk
@@ -1508,7 +1584,7 @@ async def download_artifact(artifact_id: str, session: SessionDep, storage: Stor
 
 
 @router.get("/artifacts/{artifact_id}/location", tags=["artifacts"])
-async def artifact_location(
+def artifact_location(
     artifact_id: str,
     session: SessionDep,
     storage: StorageDep,
@@ -1541,7 +1617,7 @@ async def artifact_location(
     status_code=status.HTTP_201_CREATED,
     tags=["artifacts"],
 )
-async def upload_artifact(
+def upload_artifact(
     run_id: str,
     request: Request,
     session: SessionDep,
@@ -1556,10 +1632,11 @@ async def upload_artifact(
     expected_sha256: Annotated[str | None, Form()] = None,
     metadata_json_value: Annotated[str | None, Form(alias="metadata_json")] = None,
     x_spectarr_worker_token: Annotated[str | None, Header()] = None,
+    idempotency_key: Annotated[UUID | None, Header()] = None,
 ) -> Artifact:
     fetch_or_404(session, Run, run_id)
     if role == ArtifactRole.DERIVED:
-        await require_worker_token(settings, request, x_spectarr_worker_token)
+        require_worker_token(settings, request, x_spectarr_worker_token)
     if file.size is not None and file.size > settings.max_upload_bytes:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Upload exceeds configured size limit")
     validate_derivation_links(session, run_id, parent_artifact_id, recipe_id)
@@ -1584,6 +1661,7 @@ async def upload_artifact(
         recipe_id=recipe_id,
         recipe_fingerprint=recipe_fingerprint_value,
         metadata_json=metadata_json,
+        artifact_id=import_record_id(request, idempotency_key, f"source:{run_id}"),
     )
 
 
@@ -1593,12 +1671,14 @@ async def upload_artifact(
     status_code=status.HTTP_201_CREATED,
     tags=["artifacts"],
 )
-async def import_artifact(
+def import_artifact(
     run_id: str,
     payload: PathImportRequest,
+    request: Request,
     session: SessionDep,
     storage: StorageDep,
     settings: SettingsDep,
+    idempotency_key: Annotated[UUID | None, Header()] = None,
 ) -> Artifact:
     fetch_or_404(session, Run, run_id)
     source = require_allowed_import_path(payload.source_path, settings)
@@ -1619,6 +1699,7 @@ async def import_artifact(
         recipe_id=payload.recipe_id,
         recipe_fingerprint=payload.recipe_fingerprint,
         metadata_json=payload.metadata_json,
+        artifact_id=import_record_id(request, idempotency_key, f"source:{run_id}"),
     )
 
 
@@ -1628,7 +1709,7 @@ async def import_artifact(
     status_code=status.HTTP_202_ACCEPTED,
     tags=["processing"],
 )
-async def request_derivative(run_id: str, payload: DerivativeRequest, session: SessionDep) -> Job:
+def request_derivative(run_id: str, payload: DerivativeRequest, session: SessionDep) -> Job:
     fetch_or_404(session, Run, run_id)
     artifact = (
         fetch_or_404(session, Artifact, payload.input_artifact_id)
@@ -1727,7 +1808,7 @@ async def request_derivative(run_id: str, payload: DerivativeRequest, session: S
 
 
 @router.post("/jobs", response_model=JobRead, status_code=status.HTTP_201_CREATED, tags=["jobs"])
-async def create_job(payload: JobCreate, session: SessionDep) -> Job:
+def create_job(payload: JobCreate, session: SessionDep) -> Job:
     if payload.input_artifact_id:
         fetch_or_404(session, Artifact, payload.input_artifact_id)
     if payload.recipe_id:
@@ -1736,7 +1817,8 @@ async def create_job(payload: JobCreate, session: SessionDep) -> Job:
 
 
 @router.get("/jobs", tags=["jobs"])
-async def list_jobs(
+def list_jobs(
+    request: Request,
     session: SessionDep,
     state: JobState | None = None,
     kind: str | None = None,
@@ -1744,7 +1826,7 @@ async def list_jobs(
     offset: int = 0,
     limit: int = Query(100, ge=1, le=500),
 ) -> list[dict]:
-    query = select(Job).order_by(Job.created_at.desc())
+    query = select(Job).where(visibility(request.state.principal, Job)).order_by(Job.created_at.desc(), Job.id)
     if claimable:
         now = datetime.now(timezone.utc)
         query = query.where(
@@ -1762,12 +1844,12 @@ async def list_jobs(
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])
-async def get_job(job_id: str, session: SessionDep) -> Job:
+def get_job(job_id: str, session: SessionDep) -> Job:
     return fetch_or_404(session, Job, job_id)
 
 
 @router.post("/jobs/{job_id}/claim", response_model=JobRead, tags=["jobs"])
-async def claim_job(
+def claim_job(
     job_id: str,
     session: SessionDep,
     settings: SettingsDep,
@@ -1803,7 +1885,7 @@ async def claim_job(
 
 
 @router.post("/jobs/{job_id}/heartbeat", response_model=JobRead, tags=["jobs"])
-async def heartbeat_job(
+def heartbeat_job(
     job_id: str,
     session: SessionDep,
     settings: SettingsDep,
@@ -1821,7 +1903,7 @@ async def heartbeat_job(
 
 
 @router.patch("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])
-async def update_job(
+def update_job(
     job_id: str,
     payload: JobUpdate,
     session: SessionDep,
@@ -1860,7 +1942,7 @@ async def update_job(
 
 
 @router.post("/jobs/{job_id}/retry", response_model=JobRead, tags=["jobs"])
-async def retry_job(job_id: str, session: SessionDep) -> Job:
+def retry_job(job_id: str, session: SessionDep) -> Job:
     job = fetch_or_404(session, Job, job_id)
     if job.state not in {JobState.FAILED, JobState.CANCELLED}:
         raise HTTPException(status.HTTP_409_CONFLICT, "Only failed or cancelled jobs can be retried")
@@ -1884,13 +1966,13 @@ async def retry_job(job_id: str, session: SessionDep) -> Job:
     status_code=status.HTTP_201_CREATED,
     tags=["runs"],
 )
-async def create_annotation(run_id: str, payload: AnnotationCreate, session: SessionDep) -> RunAnnotation:
+def create_annotation(run_id: str, payload: AnnotationCreate, session: SessionDep) -> RunAnnotation:
     fetch_or_404(session, Run, run_id)
     return commit_or_conflict(session, RunAnnotation(run_id=run_id, **payload.model_dump()))
 
 
 @router.get("/runs/{run_id}/annotations", response_model=list[AnnotationRead], tags=["runs"])
-async def list_annotations(run_id: str, session: SessionDep) -> list[RunAnnotation]:
+def list_annotations(run_id: str, session: SessionDep) -> list[RunAnnotation]:
     fetch_or_404(session, Run, run_id)
     return list(
         session.scalars(
@@ -1912,6 +1994,7 @@ def create_artifact_record(
     recipe_id: str | None,
     recipe_fingerprint: str | None = None,
     metadata_json: dict | None = None,
+    artifact_id: str | None = None,
 ) -> Artifact:
     artifact = Artifact(
         run_id=run_id,
@@ -1928,7 +2011,10 @@ def create_artifact_record(
         recipe_fingerprint=recipe_fingerprint,
         metadata_json=metadata_json or {},
         immutable=True,
+        **({"id": artifact_id} if artifact_id else {}),
     )
+    if artifact_id and (existing := session.get(Artifact, artifact_id)):
+        return recover_import_artifact(session, storage, existing, artifact)
     try:
         session.add(artifact)
         session.flush()
@@ -1939,10 +2025,29 @@ def create_artifact_record(
         session.refresh(artifact)
     except IntegrityError as error:
         session.rollback()
+        if artifact_id and (existing := session.get(Artifact, artifact_id)):
+            return recover_import_artifact(session, storage, existing, artifact)
         raise HTTPException(status.HTTP_409_CONFLICT, "A record with these values already exists") from error
     schedule_source_pipeline(session, artifact)
     session.refresh(artifact)
     return artifact
+
+
+def recover_import_artifact(
+    session: Session, storage: LocalArtifactStorage, existing: Artifact, requested: Artifact
+) -> Artifact:
+    fields = (
+        "run_id", "role", "format", "original_filename", "sha256", "byte_size", "state",
+        "parent_artifact_id", "recipe_id", "recipe_fingerprint",
+    )
+    if any(getattr(existing, key) != getattr(requested, key) for key in fields):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Import key already belongs to a different artifact")
+    if any(existing.metadata_json.get(key) != value for key, value in requested.metadata_json.items()):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Import key already belongs to different artifact metadata")
+    LibraryMaterializer(storage).materialize_artifact(existing)
+    schedule_source_pipeline(session, existing)
+    session.refresh(existing)
+    return existing
 
 
 def validate_derivation_links(
@@ -2178,6 +2283,8 @@ def assign_runs(
     principal = request.state.principal
     if principal.user_id is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "A user credential is required to assign runs")
+    require_visible(session, principal, Experiment, [experiment_id], write=True)
+    require_visible(session, principal, Run, [run.id for run in runs], write=True)
     destination = fetch_or_404(session, Experiment, experiment_id)
     if destination.project.system_key:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Runs cannot be assigned to a system inbox")

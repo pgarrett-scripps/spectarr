@@ -2,7 +2,7 @@ name: spectarr
 
 services:
   spectarr:
-    image: ${SPECTARR_IMAGE:-ghcr.io/pgarrett-scripps/spectarr}:${SPECTARR_VERSION:-latest}
+    image: ${SPECTARR_IMAGE_REF:-${SPECTARR_IMAGE:-ghcr.io/pgarrett-scripps/spectarr}:${SPECTARR_VERSION:-latest}}
     environment:
       SPECTARR_ENVIRONMENT: production
       SPECTARR_DATABASE_URL: sqlite:////data/spectarr.db
@@ -15,6 +15,7 @@ services:
       SPECTARR_CORS_ORIGINS: '[]'
       SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:-}
       SPECTARR_SECRET_KEY: ${SPECTARR_SECRET_KEY:-}
+      SPECTARR_RESTORE_MODE: ${SPECTARR_RESTORE_MODE:-false}
       SPECTARR_AUTH_MODE: ${SPECTARR_AUTH_MODE:-password}
       SPECTARR_LOCAL_USER: ${SPECTARR_LOCAL_USER:-admin}
       SPECTARR_BIND_ADDRESS: ${SPECTARR_BIND_ADDRESS:-127.0.0.1}

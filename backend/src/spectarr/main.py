@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
+
+from anyio import to_thread
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +19,7 @@ from .migrations import run_migrations
 from .processing import ensure_builtin_profiles
 from .platform_api import auth_router, platform_router
 from .storage import LocalArtifactStorage
+from .maintenance import guard_storage_mutation, sweep_storage
 
 
 @asynccontextmanager
@@ -39,7 +44,21 @@ async def lifespan(_app: FastAPI):
         settings.library_project_template,
         settings.library_filename_template,
     )
-    yield
+    async def maintenance_loop():
+        while True:
+            try:
+                await to_thread.run_sync(sweep_storage)
+            except Exception:
+                logging.getLogger(__name__).exception("Storage maintenance failed")
+            await asyncio.sleep(300)
+
+    maintenance_task = asyncio.create_task(maintenance_loop())
+    try:
+        yield
+    finally:
+        maintenance_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await maintenance_task
 
 
 settings = get_settings()
@@ -65,12 +84,12 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if request.url.path.startswith(f"{settings.api_prefix}/auth/"):
+    if request.scope['path'].startswith(f"{settings.api_prefix}/auth/"):
         response.headers["Cache-Control"] = "no-store"
     return response
 app.include_router(auth_router, prefix=settings.api_prefix)
-app.include_router(router, prefix=settings.api_prefix, dependencies=[Depends(require_request_access)])
-app.include_router(platform_router, prefix=settings.api_prefix, dependencies=[Depends(require_request_access)])
+app.include_router(router, prefix=settings.api_prefix, dependencies=[Depends(require_request_access), Depends(guard_storage_mutation)])
+app.include_router(platform_router, prefix=settings.api_prefix, dependencies=[Depends(require_request_access), Depends(guard_storage_mutation)])
 
 
 @app.get("/health", include_in_schema=False)

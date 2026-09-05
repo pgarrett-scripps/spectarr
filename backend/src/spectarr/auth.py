@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,9 +20,13 @@ from .models import (
     Agent,
     ApiToken,
     Artifact,
+    AutomationRule,
     AuditLog,
+    EventOutbox,
     Experiment,
     Job,
+    ProcessingBatch,
+    Project,
     ProjectMembership,
     Run,
     Sample,
@@ -30,6 +34,7 @@ from .models import (
     UploadSession,
     User,
     UserRole,
+    WebhookDelivery,
 )
 
 
@@ -125,8 +130,9 @@ def authenticate_token(session: Session, raw_token: str) -> Principal | None:
     if raw_token.startswith("agt_"):
         agent = session.scalar(select(Agent).where(Agent.token_hash == digest, Agent.enabled.is_(True)))
         if agent:
-            agent.last_seen_at = now
-            session.commit()
+            if timestamp_due(agent.last_seen_at, now):
+                agent.last_seen_at = now
+                session.commit()
             return Principal(
                 actor_type="agent",
                 actor_id=agent.id,
@@ -144,8 +150,9 @@ def authenticate_token(session: Session, raw_token: str) -> Principal | None:
             return None
     if token.user is None or not token.user.active:
         return None
-    token.last_used_at = now
-    session.commit()
+    if timestamp_due(token.last_used_at, now):
+        token.last_used_at = now
+        session.commit()
     effective_scopes = ROLE_SCOPES[token.user.role] if token.kind == TokenKind.SESSION else set(token.scopes)
     return Principal(
         actor_type="user",
@@ -156,9 +163,71 @@ def authenticate_token(session: Session, raw_token: str) -> Principal | None:
     )
 
 
+def timestamp_due(previous: datetime | None, now: datetime) -> bool:
+    return previous is None or (now - previous.replace(tzinfo=timezone.utc)).total_seconds() >= 60
+
+
+def is_read_request(request: Request) -> bool:
+    route = request.scope.get("route")
+    endpoint = getattr(route, "endpoint", None)
+    return request.method in {"GET", "HEAD", "OPTIONS"} or bool(
+        getattr(endpoint, "spectarr_read_only", False)
+    )
+
+
+def read_operation(endpoint):
+    endpoint.spectarr_read_only = True
+    return endpoint
+
+
+def visibility(principal: Principal, model, *, write: bool = False):
+    """Apply the same project boundary to rows, aggregates, and direct access."""
+    if principal.agent_id or principal.actor_type == "service" or principal.role in {UserRole.ADMIN, UserRole.OPERATOR}:
+        return true()
+    projects = select(ProjectMembership.project_id).where(ProjectMembership.user_id == principal.user_id)
+    if write:
+        projects = projects.where(ProjectMembership.role != UserRole.VIEWER)
+    experiments = select(Experiment.id).where(Experiment.project_id.in_(projects))
+    runs = select(Run.id).where(Run.experiment_id.in_(experiments))
+    artifacts = select(Artifact.id).where(Artifact.run_id.in_(runs))
+    filters = {
+        Project: Project.id.in_(projects),
+        Experiment: Experiment.project_id.in_(projects),
+        Sample: Sample.experiment_id.in_(experiments),
+        Run: Run.experiment_id.in_(experiments),
+        Artifact: Artifact.run_id.in_(runs),
+        Job: Job.input_artifact_id.in_(artifacts),
+        AutomationRule: AutomationRule.project_id.in_(projects),
+        EventOutbox: EventOutbox.payload["project_id"].as_string().in_(projects),
+    }
+    if model == ProcessingBatch:
+        scope = func.json_each(ProcessingBatch.scope_ids).table_valued("value").alias("batch_scope")
+        def all_visible(ids):
+            return ~select(1).select_from(scope).where(~scope.c.value.in_(ids)).exists()
+        return and_(
+            func.json_array_length(ProcessingBatch.scope_ids) > 0,
+            or_(
+                and_(ProcessingBatch.scope_type == "project", all_visible(projects)),
+                and_(ProcessingBatch.scope_type == "experiments", all_visible(experiments)),
+                and_(ProcessingBatch.scope_type == "runs", all_visible(runs)),
+            ),
+        )
+    if model == WebhookDelivery:
+        return WebhookDelivery.event_id.in_(select(EventOutbox.id).where(filters[EventOutbox]))
+    return filters[model]
+
+
+def require_visible(session: Session, principal: Principal, model, ids: list[str], *, write: bool = False) -> None:
+    if not ids:
+        return
+    allowed = set(session.scalars(select(model.id).where(model.id.in_(ids), visibility(principal, model, write=write))))
+    if allowed != set(ids):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Project access denied")
+
+
 def scope_for_request(request: Request) -> str:
-    path = request.url.path
-    is_read = request.method in {"GET", "HEAD", "OPTIONS"}
+    path = request.scope['path']
+    is_read = is_read_request(request)
     if "/auth/" in path:
         return "library:read"
     if any(segment in path for segment in ("/jobs", "/webhook-deliveries", "/extraction-results")) or path.endswith(
@@ -172,7 +241,7 @@ def scope_for_request(request: Request) -> str:
     return "library:read" if is_read else "library:write"
 
 
-async def require_request_access(
+def require_request_access(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     authorization: Annotated[str | None, Header()] = None,
@@ -212,15 +281,19 @@ async def require_request_access(
             session,
             principal,
             project_id,
-            write=request.method not in {"GET", "HEAD", "OPTIONS"},
+            write=not is_read_request(request),
         )
+    for key, model in (("job_id", Job), ("batch_id", ProcessingBatch)):
+        if object_id := request.path_params.get(key):
+            if session.get(model, object_id) is not None:
+                require_visible(session, principal, model, [object_id], write=not is_read_request(request))
     request.state.principal = principal
-    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+    if not is_read_request(request):
         session.add(
             AuditLog(
                 actor_type=principal.actor_type,
                 actor_id=principal.actor_id,
-                action=f"{request.method} {request.url.path}",
+                action=f"{request.method} {request.scope['path']}",
                 resource_type="api_route",
                 request_id=request.headers.get("X-Request-Id"),
             )

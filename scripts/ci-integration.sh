@@ -2,9 +2,9 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-env_file="$repo_root/.env.ci"
 project_name="spectarr-ci-${GITHUB_RUN_ID:-$$}"
 backup_work=$(mktemp -d "${TMPDIR:-/tmp}/spectarr-ci-backup.XXXXXX")
+env_file="$backup_work/.env"
 integration_image=""
 
 read -r dashboard_port mcp_port < <(

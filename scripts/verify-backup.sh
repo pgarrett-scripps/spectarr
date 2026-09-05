@@ -19,8 +19,31 @@ fi
 (
   cd "$backup_dir"
   sha256sum --check SHA256SUMS
-  tar --list --file storage.tar > /dev/null
 )
-"${compose[@]}" exec -T spectarr spectarr-backup verify < "$backup_dir/database.sqlite3" > /dev/null
+image=${SPECTARR_BACKUP_IMAGE:-}
+if [[ -z "$image" && -f "$backup_dir/IMAGE" ]]
+then
+  image=$(cat "$backup_dir/IMAGE")
+fi
+if [[ -z "$image" ]]
+then
+  image=$("${compose[@]}" images -q spectarr 2>/dev/null || true)
+  if [[ -z "$image" ]]
+  then
+    image=$("${compose[@]}" config --images | head -1)
+  fi
+fi
+if [[ -z "$image" ]]
+then
+  echo "Set SPECTARR_BACKUP_IMAGE to an image containing the backup verifier" >&2
+  exit 1
+fi
+if [[ -f "$backup_dir/snapshot.tar" ]]
+then
+  docker run --rm -i --network none --entrypoint spectarr-backup "$image" verify-set < "$backup_dir/snapshot.tar"
+else
+  tar --create --file - --directory "$backup_dir" database.sqlite3 storage.tar |
+    docker run --rm -i --network none --entrypoint spectarr-backup "$image" verify-set
+fi
 
 echo "Backup verified: $backup_dir"
