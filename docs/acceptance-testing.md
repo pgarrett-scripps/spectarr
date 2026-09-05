@@ -1,5 +1,17 @@
 # Real-file acceptance testing
 
+## 0.3.0 release validation
+
+On September 4, 2026 (Pacific time), the complete vendor matrix passed against application commit `22100fcf09b26d774e210a5877b8e053d154e97f`, built as version 0.3.0 with the pinned dependencies. Tests used separate temporary bind mounts for the database, artifact storage, and backups. Existing authorized fixtures were mounted read-only. See [machine-readable results](acceptance-0.3.0.json) for checksums, warnings, the local image ID, and backup measurements.
+
+Thermo conversion passed for mzML, mzXML, MGF, and MS2. Direct extraction found 10 spectra. The larger RAW fixture exercised the expected OpenMassSpec failure and successful MSConvert fallback, producing 5,445 spectra. Atomic Bruker import and conversion produced 476,410 spectra. Cancellation, retry, authenticated download checksums, reclamation, and regeneration all passed.
+
+The managed backup created and verified a 1,106,124,800-byte snapshot covering 11 required artifact objects, then verified the extracted acquisitions and booted the isolated restored API. Creation, verification, and the restore check completed in 36.14 seconds on this local disk. This measurement does not establish NAS performance.
+
+The release preparation also passed GitHub component CI and Linux integration, including browser workflows. Windows packaging and the final candidate image are checked by the tagged release workflow. No upgrade rehearsal was required for this release because there are no existing users.
+
+## Earlier acceptance baseline
+
 The single-container SQLite build was exercised on 2026-08-27 with authorized vendor fixtures and the pinned ProteoWizard image. Results are stored in the `Release acceptance 79a61546` project in the local dashboard. The reusable runner is `scripts/vendor-acceptance.py`.
 
 ## Verified inputs
@@ -27,7 +39,7 @@ The first acceptance attempt found an invalid built-in peak-picking range. The c
 
 ## Automated regression suite
 
-The current suite passes 67 backend tests at 85.6 percent coverage, 52 dashboard tests, and 126 service tests. TypeScript checks, ESLint, the production dashboard build, Compose validation, container health, browser interaction, authenticated conversion, direct spectrum reads, MCP initialization, webhook delivery, concurrent SQLite ingestion, restart recovery, online backup, and independent restore boot are release gates.
+The August baseline passed 67 backend tests at 85.6 percent coverage, 52 dashboard tests, and 126 service tests. TypeScript checks, ESLint, the production dashboard build, Compose validation, container health, browser interaction, authenticated conversion, direct spectrum reads, MCP initialization, webhook delivery, concurrent SQLite ingestion, restart recovery, online backup, and independent restore boot are release gates.
 
 Run the portable release rehearsal with:
 

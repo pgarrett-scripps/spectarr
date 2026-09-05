@@ -1,0 +1,75 @@
+{
+  "version": "0.3.0",
+  "application_commit": "22100fcf09b26d774e210a5877b8e053d154e97f",
+  "local_image_id": "sha256:21abb4cb0b0b9af7aa5c5f21e927b322adf3dfdab3a89143dbe52cad9a91dc56",
+  "msconvert_image": "proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:3.0.26121-ed8dc8a",
+  "status": "passed",
+  "fixtures": {
+    "bruker": {
+      "path": "/imports/example-dda.d",
+      "source_bytes": 62132225,
+      "source_sha256": "408ac611713b18688e790e46266956d68aa1872f621a1d56fce9bdff48baf9fd",
+      "extraction": {
+        "provider": "spectarr-mzml",
+        "spectra_count": 476410,
+        "warnings": [
+          "Isolation window details reached the configured storage limit",
+          "Observed m/z range terms were not present in the mzML"
+        ]
+      }
+    },
+    "large_raw": {
+      "path": "/imports/large-vendor.raw",
+      "source_bytes": 35488261,
+      "source_sha256": "b8f8fe0986a03388ac582bd8a49812a8ad8d78d3cec70bce01c345774a13e3b0",
+      "extraction": {
+        "provider": "spectarr-mzml",
+        "spectra_count": 5445,
+        "warnings": [
+          "Isolation window details reached the configured storage limit"
+        ]
+      }
+    },
+    "thermo": {
+      "path": "/imports/angiotensin.raw",
+      "source_bytes": 419028,
+      "source_sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b",
+      "extraction": {
+        "provider": "openmassspec",
+        "spectra_count": 10,
+        "warnings": []
+      }
+    }
+  },
+  "thermo_outputs": {
+    "MGF": {
+      "byte_size": 45103,
+      "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2"
+    },
+    "MS2": {
+      "byte_size": 378243,
+      "sha256": "e7ff853c191254fb2f2d491487701a2efb1c5bbb3aee2fae66ef38b83a9a6ba9"
+    },
+    "mzML": {
+      "byte_size": 227892,
+      "sha256": "3f59462c45c76f9c96a166f9819422af97501eba900f0332c77951eb84a5e75e"
+    },
+    "mzXML": {
+      "byte_size": 329563,
+      "sha256": "ccd125798bc2ebaee059973596edbfe1316c86ece001809bb8c2e01a25a48525"
+    }
+  },
+  "cancellation_and_retry": "passed",
+  "reclamation_and_regeneration": {
+    "status": "passed",
+    "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2"
+  },
+  "managed_backup": {
+    "status": "passed",
+    "byte_size": 1106124800,
+    "artifact_objects": 11,
+    "backup_and_restore_seconds": 36.14,
+    "restored_api_checked_at": "2026-09-05T00:54:56.296879+00:00"
+  },
+  "storage_layout": "Separate temporary bind mounts for database, artifact storage, and backups on local disk"
+}
