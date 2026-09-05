@@ -1078,3 +1078,35 @@ td:last-child { display: flex; align-items: center; gap: 1px }
   .spectrum-filters, .spectrum-filters.advanced { grid-template-columns: repeat(2, minmax(110px, 1fr)) }
   .spectrum-selection-control > div { min-width: 0 }
 }
+
+.batch-import-note { margin: 0 }
+.batch-import-note { padding: 0 19px 19px }
+.batch-import-note { color: #8091a7 }
+.batch-import-note { font-size: 11px }
+.batch-import-naming small { display: block }
+.batch-import-naming small { margin: 7px 0 }
+.batch-import-naming small { color: #8091a7 }
+.batch-import-naming button { margin-top: 9px }
+.batch-import-table { width: 100% }
+.batch-import-table td { vertical-align: top }
+.batch-import-table td:first-child { max-width: 280px }
+.batch-import-table strong { overflow-wrap: anywhere }
+.batch-import-table small { display: block }
+.batch-import-table input { min-width: 140px }
+.batch-import-table input { width: 100% }
+.batch-import-table input { padding: 8px }
+.batch-import-table input { border: 1px solid var(--border) }
+.batch-import-table input { border-radius: 6px }
+.batch-import-table input { color: #bcc7d5 }
+.batch-import-table input { background: #0a1726 }
+.batch-import-table input:focus { outline: 2px solid #6657c3 }
+.batch-import-table input[readonly] { border-color: transparent }
+.batch-import-table progress { display: block }
+.batch-import-table progress { width: 140px }
+.batch-import-table progress { margin-top: 8px }
+.batch-import-table progress { accent-color: #9582f5 }
+.batch-import-complete { color: #65cfad }
+.batch-import-error { color: #f0a1a8 }
+.batch-import-error { display: block }
+.batch-import-error { min-width: 140px }
+.batch-import-error { max-width: 300px }

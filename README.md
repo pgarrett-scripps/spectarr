@@ -29,6 +29,8 @@ Spectarr stores source acquisitions as immutable, checksummed artifacts. It also
 
 Browse from projects to experiments to individual runs. Search across the whole workspace, move inbox acquisitions into the right experiment, and keep source files, samples, processing history, and annotations together.
 
+Import several acquisitions at once with a shared project and experiment. Review filename-based run names, edit samples, follow each upload, and retry failed items without repeating completed imports. See [batch import](docs/batch-import.md).
+
 ### Inspect spectra without leaving the browser
 
 Filter large spectrum catalogs by scan, retention time, MS level, precursor, charge, peak count, and intensity. Select a row to view the spectrum and chromatogram without loading an entire run into the browser.

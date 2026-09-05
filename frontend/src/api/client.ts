@@ -87,6 +87,97 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export interface ImportDestination {
+  projectId: string
+  experimentId: string
+}
+
+export interface ImportProgress {
+  phase: 'Preparing run' | 'Uploading' | 'Registering source' | 'Importing server path'
+  percent?: number
+}
+
+export interface ImportRunValues {
+  projectId?: string
+  projectName: string
+  experimentName: string
+  sampleName: string
+  runName: string
+  destination?: ImportDestination
+  sourcePath?: string
+  file?: File
+  idempotencyKey?: string
+  onProgress?: (progress: ImportProgress) => void
+}
+
+async function findOrCreateNamed(listPath: string, createPath: string, name: string, parent: Record<string, string>) {
+  const find = async () => (await allPages<{ id: string, name: string }>(listPath)).find(item => item.name === name)
+  const existing = await find()
+  if (existing) return existing
+  try {
+    return await request<{ id: string, name: string }>(createPath, {
+      method: 'POST', body: JSON.stringify({ ...parent, name })
+    })
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      const concurrent = await find()
+      if (concurrent) return concurrent
+    }
+    throw error
+  }
+}
+
+async function prepareImport(values: { projectId?: string, projectName: string, experimentName: string }): Promise<ImportDestination> {
+  if (!values.projectName.trim() || !values.experimentName.trim()) throw new Error('Project and experiment are required')
+  const project = values.projectId
+    ? await request<{ id: string }>(`/projects/${encodeURIComponent(values.projectId)}`)
+    : await findOrCreateNamed('/projects', '/projects', values.projectName.trim(), {})
+  const experiment = await findOrCreateNamed(
+    `/experiments?project_id=${encodeURIComponent(project.id)}`, '/experiments',
+    values.experimentName.trim(), { project_id: project.id }
+  )
+  return { projectId: project.id, experimentId: experiment.id }
+}
+
+function uploadImportFile(
+  path: string, body: FormData, headers?: Record<string, string>, onProgress?: (progress: ImportProgress) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const token = getAccessToken()
+    xhr.open('POST', `${API_BASE}${path}`)
+    xhr.setRequestHeader('Accept', 'application/json')
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    Object.entries(headers ?? {}).forEach(([key, value]) => xhr.setRequestHeader(key, value))
+    xhr.upload.onprogress = event => onProgress?.({
+      phase: 'Uploading', percent: event.lengthComputable ? Math.min(100, Math.round(event.loaded / event.total * 100)) : undefined
+    })
+    xhr.upload.onload = () => onProgress?.({ phase: 'Registering source' })
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve()
+        return
+      }
+      let message = `Import failed with status ${xhr.status}`
+      try {
+        const payload = JSON.parse(xhr.responseText) as { detail?: unknown }
+        if (typeof payload.detail === 'string') message = payload.detail
+      } catch {
+        // Keep the status message for responses without JSON
+      }
+      if (xhr.status === 401 && token) {
+        clearAccessToken()
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+      }
+      reject(new ApiError(xhr.status, message))
+    }
+    xhr.onerror = () => reject(new Error('Upload connection failed. Retry this item when the connection returns.'))
+    xhr.onabort = () => reject(new Error('Upload was interrupted. Retry this item.'))
+    onProgress?.({ phase: 'Uploading', percent: 0 })
+    xhr.send(body)
+  })
+}
+
 export interface RunListQuery {
   projectId?: string
   experimentId?: string
@@ -900,40 +991,31 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ scope_type: 'project', scope_ids: [values.projectId], formats: values.formats, confirmation: 'PURGE DERIVED FILES' })
   })),
-  importRun: async (values: {
-    projectName: string
-    experimentName: string
-    sampleName: string
-    runName: string
-    sourcePath?: string
-    file?: File
-  }) => {
-    const projects = await allPages<{ id: string, name: string }>('/projects')
-    const project = projects.find(item => item.name === values.projectName) ?? await request<{ id: string, name: string }>('/projects', {
-      method: 'POST',
-      body: JSON.stringify({ name: values.projectName })
-    })
-    const experiments = await allPages<{ id: string, name: string }>(`/experiments?project_id=${encodeURIComponent(project.id)}`)
-    const experiment = experiments.find(item => item.name === values.experimentName) ?? await request<{ id: string, name: string }>('/experiments', {
-      method: 'POST',
-      body: JSON.stringify({ project_id: project.id, name: values.experimentName })
-    })
-    const samples = await allPages<{ id: string, name: string }>(`/samples?experiment_id=${encodeURIComponent(experiment.id)}`)
-    const sample = samples.find(item => item.name === values.sampleName) ?? await request<{ id: string, name: string }>('/samples', {
-      method: 'POST',
-      body: JSON.stringify({ experiment_id: experiment.id, name: values.sampleName })
-    })
-    const sourceName = values.file?.name ?? values.sourcePath ?? ''
-    const lower = sourceName.toLowerCase()
+  prepareImport: prepareImport,
+  importRun: async (values: ImportRunValues) => {
+    if (Boolean(values.file) === Boolean(values.sourcePath?.trim())) {
+      throw new Error('Choose a file or a server path for each run')
+    }
+    if (!values.sampleName.trim() || !values.runName.trim()) {
+      throw new Error('Sample and run names are required')
+    }
+    values.onProgress?.({ phase: 'Preparing run' })
+    const destination = values.destination ?? await prepareImport(values)
+    const sample = await findOrCreateNamed(
+      `/samples?experiment_id=${encodeURIComponent(destination.experimentId)}`, '/samples',
+      values.sampleName.trim(), { experiment_id: destination.experimentId }
+    )
+    const lower = (values.file?.name ?? values.sourcePath ?? '').toLowerCase().replace(/\.gz$/, '')
     const sourceClass = lower.endsWith('.mzml') || lower.endsWith('.mzxml')
       ? 'open'
-      : lower.endsWith('.mgf') || lower.endsWith('.mgf.gz') || lower.endsWith('.ms2') || lower.endsWith('.ms2.gz') || lower.endsWith('.msp') || lower.endsWith('.msp.gz') ? 'spectrum_list' : 'vendor'
+      : /\.(mgf|ms2|msp)$/.test(lower) ? 'spectrum_list' : 'vendor'
+    const headers = values.idempotencyKey ? { 'Idempotency-Key': values.idempotencyKey } : undefined
     const run = await request<{ id: string }>('/runs', {
-      method: 'POST',
+      method: 'POST', headers,
       body: JSON.stringify({
-        experiment_id: experiment.id,
+        experiment_id: destination.experimentId,
         sample_id: sample.id,
-        name: values.runName,
+        name: values.runName.trim(),
         source_class: sourceClass
       })
     })
@@ -941,14 +1023,15 @@ export const api = {
       const body = new FormData()
       body.set('file', values.file)
       body.set('role', 'source')
-      await request(`/runs/${encodeURIComponent(run.id)}/artifacts/upload`, { method: 'POST', body })
-    } else if (values.sourcePath) {
+      await uploadImportFile(`/runs/${encodeURIComponent(run.id)}/artifacts/upload`, body, headers, values.onProgress)
+    } else {
+      values.onProgress?.({ phase: 'Importing server path' })
       await request(`/runs/${encodeURIComponent(run.id)}/artifacts/import`, {
-        method: 'POST',
-        body: JSON.stringify({ source_path: values.sourcePath, role: 'source' })
+        method: 'POST', headers,
+        body: JSON.stringify({ source_path: values.sourcePath?.trim(), role: 'source' })
       })
     }
-    return { ...run, projectId: project.id }
+    return { ...run, projectId: destination.projectId }
   },
   retryJob: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
   assignRuns: async (runIds: string[], experimentId: string) => normalizeList(await request<unknown[]>('/runs/bulk-assignment', {
