@@ -125,14 +125,14 @@ jobs:
         run: |
           version=$(tr -d '[:space:]' < VERSION)
           mkdir -p release/bundle
-          cp release/compose.yaml release/.env.example release/README.md release/bundle/
+          cp release/compose.yaml release/compose.backups.yaml release/.env.example release/README.md release/bundle/
           cp release/dist/*.whl release/bundle/
           mkdir -p release/bundle/scripts release/bundle/examples
           cp scripts/backup.sh scripts/verify-backup.sh scripts/restore-test.sh scripts/smoke_test.py scripts/sqlite-soak.py scripts/vendor-acceptance.py scripts/release-rehearsal.sh release/bundle/scripts/
           cp examples/demo.mgf release/bundle/examples/
           cp VERSION CHANGELOG.md SECURITY.md LICENSE NOTICE DEPENDENCIES.env constraints.txt release/bundle/
           cp docs/release-checklist.md release/bundle/
-          cp docs/reliability-and-recovery.md release/bundle/
+          cp docs/reliability-and-recovery.md docs/backup-integration.md release/bundle/
           tar -C release/bundle -czf "release/spectarr-${version}.tar.gz" .
           (
             cd release

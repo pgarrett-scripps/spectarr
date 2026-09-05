@@ -500,3 +500,41 @@ export interface PaginatedResponse<T> {
   page: number
   pageSize: number
 }
+
+export interface BackupPolicy {
+  enabled: boolean
+  every_days: number
+  time_utc: string
+  keep_last: number
+  restore_every_days: number
+}
+
+export interface BackupSnapshot {
+  id: string
+  created_at: string
+  verified_at: string
+  byte_size: number
+  artifact_objects: number
+}
+
+export interface BackupStatus {
+  instance_id: string
+  policy: BackupPolicy
+  status: string
+  operation: string | null
+  configured: boolean
+  destination: string | null
+  destination_available: boolean
+  destination_error: string | null
+  same_filesystem: boolean
+  free_bytes: number | null
+  next_backup_at: string | null
+  last_attempt_at: string | null
+  last_success_at: string | null
+  last_restore_at: string | null
+  last_error: string | null
+  last_restore_error: string | null
+  latest_backup: string | null
+  history: BackupSnapshot[]
+  restore_mode: boolean
+}

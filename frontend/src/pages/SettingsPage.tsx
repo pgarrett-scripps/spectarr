@@ -1,29 +1,34 @@
-import { Check, Clipboard, KeyRound, LockKeyhole, Plus, Shield, Trash2, UserRound } from 'lucide-react'
+import { Check, DatabaseBackup, Clipboard, KeyRound, LockKeyhole, Plus, Shield, Trash2, UserRound } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { useResource } from '../api/useResource'
 import { useAuth } from '../auth/AuthContext'
 import { formatRelativeDate } from '../components/Data'
 import { ApiErrorBanner, PageHeader, Panel } from '../components/Page'
 import type { UserRole } from '../types'
+import { BackupSettings } from '../components/BackupSettings'
 
 const sections = [
   { id: 'security', label: 'Security', icon: Shield },
-  { id: 'users', label: 'Users', icon: UserRound, adminOnly: true }
+  { id: 'users', label: 'Users', icon: UserRound, adminOnly: true },
+  { id: 'backups', label: 'Backups', icon: DatabaseBackup, adminOnly: true }
 ]
 
 export function SettingsPage() {
-  const [section, setSection] = useState('security')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const section = searchParams.get('section') ?? 'security'
+  const setSection = (value: string) => setSearchParams({ section: value }, { replace: true })
   const auth = useAuth()
   const visibleSections = sections.filter(item => !('adminOnly' in item) || auth.user?.role === 'admin')
   return <>
-    <PageHeader title="Settings" description="Manage live API credentials and user accounts." actions={<Link className="button button-secondary" to="/automation">Processing automation</Link>} />
+    <PageHeader title="Settings" description="Manage credentials, users, and backups." actions={<Link className="button button-secondary" to="/automation">Processing automation</Link>} />
     <div className="settings-layout">
       <nav className="settings-nav">{visibleSections.map(item => <button className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)} key={item.id}><item.icon size={17} />{item.label}</button>)}</nav>
       <div className="settings-content">
         {section === 'security' && <SecuritySettings />}
         {section === 'users' && <UsersSettings />}
+        {section === 'backups' && auth.user?.role === 'admin' && <BackupSettings />}
       </div>
     </div>
   </>

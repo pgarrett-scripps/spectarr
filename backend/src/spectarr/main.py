@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse
 
 from . import __version__
 from .api import router
+from .backup_api import router as backup_router
+from .backup_service import BackupService
 from .auth import ensure_local_user, require_request_access
 from .config import get_settings
 from .database import SessionLocal
@@ -52,13 +54,25 @@ async def lifespan(_app: FastAPI):
                 logging.getLogger(__name__).exception("Storage maintenance failed")
             await asyncio.sleep(300)
 
+    async def backup_loop():
+        while True:
+            try:
+                await to_thread.run_sync(BackupService().tick)
+            except Exception:
+                logging.getLogger(__name__).exception("Backup scheduler failed")
+            await asyncio.sleep(5)
+
     maintenance_task = asyncio.create_task(maintenance_loop())
+    backup_task = asyncio.create_task(backup_loop()) if not settings.restore_mode else None
     try:
         yield
     finally:
-        maintenance_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await maintenance_task
+        tasks = [maintenance_task] + ([backup_task] if backup_task else [])
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 settings = get_settings()
@@ -88,6 +102,7 @@ async def security_headers(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store"
     return response
 app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(backup_router, prefix=settings.api_prefix)
 app.include_router(router, prefix=settings.api_prefix, dependencies=[Depends(require_request_access), Depends(guard_storage_mutation)])
 app.include_router(platform_router, prefix=settings.api_prefix, dependencies=[Depends(require_request_access), Depends(guard_storage_mutation)])
 

@@ -20,6 +20,10 @@ All notable changes to Spectarr will be documented in this file. Releases follow
 
 ### Added
 
+- Administrator backup settings with persisted schedules, on-demand backups, retention, destination identity checks, and visible verification and failure status
+- Periodic isolated restore checks that verify extracted acquisitions, boot the restored API, and enforce read-only recovery mode
+- Optional Compose backup mount, with missing-mount protection and independent verification and restore instructions
+
 - Browser batch import with shared project and experiment assignment, filename-based naming previews, editable samples, per-file progress, and retries that reuse already committed runs and artifacts
 - Multiple allowlisted server paths can be queued together, including atomic vendor directories
 - `SPECTARR_STORAGE_DIR` in the release Compose file mounts bulk artifact storage separately from the data directory, so the SQLite database can stay on local disk while artifacts live on large or network storage

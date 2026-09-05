@@ -69,7 +69,7 @@ data/
     └── library/
 ```
 
-Back up that directory with the included online backup tool. Restore tests boot the backup as a separate Spectarr instance and verify both the database and artifact storage.
+Schedule verified backups to a separate directory under **Settings → Backups**, or use the included online backup tool. See [managed backup setup](docs/backup-integration.md). Restore tests boot the backup as a separate Spectarr instance and verify both the database and artifact storage.
 
 See the [reliability and recovery guide](docs/reliability-and-recovery.md) for upload recovery, backup verification, restore isolation, and dependency maintenance.
 

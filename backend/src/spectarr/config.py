@@ -5,7 +5,7 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     spectrum_reader_timeout_seconds: float = 30.0
     dashboard_root: Path | None = None
     restore_mode: bool = False
+    backup_root: Path | None = None
+    backup_image: str | None = None
+    backup_min_free_bytes: int = Field(default=256 * 1024 * 1024, ge=0)
+    backup_restore_timeout_seconds: int = Field(default=120, ge=10, le=3600)
 
     @field_validator("storage_root", mode="before")
     @classmethod
@@ -56,7 +60,7 @@ class Settings(BaseSettings):
     def expand_library_root(cls, value: str | Path | None) -> Path | None:
         return Path(value).expanduser() if value else None
 
-    @field_validator("dashboard_root", mode="before")
+    @field_validator("dashboard_root", "backup_root", mode="before")
     @classmethod
     def expand_dashboard_root(cls, value: str | Path | None) -> Path | None:
         return Path(value).expanduser() if value else None

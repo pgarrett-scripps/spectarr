@@ -57,6 +57,7 @@ Run the reusable matrix with `scripts/vendor-acceptance.py`. It fails unless the
 - Confirm first startup generates independent, strong application and worker secrets under the durable data directory.
 - Confirm the converter uses a rootless Docker-compatible socket when available.
 - Confirm a restored database and storage tree can be started independently of the active installation.
+- Confirm the release archive includes the optional backup Compose override and managed backup guide.
 - Confirm the release archive includes the reliability and recovery guide, and that restore verification mode leaves processing and outbound workers stopped.
 - Confirm the GitHub release checksum and image digests match the tested artifacts.
 - Confirm `DEPENDENCIES.env`, `constraints.txt`, and every Dockerfile base image digest match the tested candidate.

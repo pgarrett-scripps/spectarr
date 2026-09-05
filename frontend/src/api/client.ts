@@ -1,4 +1,4 @@
-import type { ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpectrumCatalogPage, SpectrumQueryRequest, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
+import type { BackupPolicy, BackupStatus, ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpectrumCatalogPage, SpectrumQueryRequest, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const TOKEN_KEY = 'spectarr_access_token'
@@ -701,6 +701,10 @@ function normalizeWebhookDelivery(value: unknown): WebhookDelivery {
 }
 
 export const api = {
+  backups: () => request<BackupStatus>('/backups'),
+  saveBackupPolicy: (policy: BackupPolicy) => request<BackupStatus>('/backups/policy', { method: 'PUT', body: JSON.stringify(policy) }),
+  runBackup: () => request<BackupStatus>('/backups/run', { method: 'POST' }),
+  checkBackupRestore: () => request<BackupStatus>('/backups/restore-check', { method: 'POST' }),
   systemHealth: async () => {
     const response = await request<ApiRecord>('/system/health')
     return {

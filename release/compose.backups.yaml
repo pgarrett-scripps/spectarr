@@ -1,0 +1,11 @@
+services:
+  spectarr:
+    environment:
+      SPECTARR_BACKUP_ROOT: /backups
+      SPECTARR_BACKUP_IMAGE: ${SPECTARR_BACKUP_IMAGE:-}
+    volumes:
+      - type: bind
+        source: ${SPECTARR_BACKUP_DIR:?Set SPECTARR_BACKUP_DIR to an existing backup directory}
+        target: /backups
+        bind:
+          create_host_path: false

@@ -1110,3 +1110,16 @@ td:last-child { display: flex; align-items: center; gap: 1px }
 .batch-import-error { display: block }
 .batch-import-error { min-width: 140px }
 .batch-import-error { max-width: 300px }
+
+.backup-status { padding: 16px 19px }
+.backup-status { color: #a8b8ca }
+.backup-status { font-size: 12px }
+.backup-status dl { display: grid }
+.backup-status dl { grid-template-columns: minmax(120px, 1fr) 2fr }
+.backup-status dl { gap: 10px }
+.backup-status dd { margin: 0 }
+.backup-status dd { overflow-wrap: anywhere }
+.backup-status code { overflow-wrap: anywhere }
+.backup-history { width: 100% }
+.backup-history code { overflow-wrap: anywhere }
+.backup-history code { white-space: normal }

@@ -39,10 +39,11 @@ then
   exit 1
 fi
 
-mkdir -p "$backup_work/runtime-data" "$backup_work/imports"
+mkdir -p "$backup_work/runtime-data" "$backup_work/imports" "$backup_work/managed-backups"
 {
   echo "SPECTARR_ENVIRONMENT=production"
   echo "SPECTARR_DATA_DIR=$backup_work/runtime-data"
+  echo "SPECTARR_BACKUP_DIR=$backup_work/managed-backups"
   echo "SPECTARR_IMPORTS_DIR=$backup_work/imports"
   echo "SPECTARR_UID=$(id -u)"
   echo "SPECTARR_GID=$(id -g)"
@@ -54,7 +55,7 @@ mkdir -p "$backup_work/runtime-data" "$backup_work/imports"
   echo "SPECTARR_WEBHOOK_ALLOW_PRIVATE_NETWORKS=true"
 } > "$env_file"
 
-compose=(docker compose --project-name "$project_name" --env-file "$env_file" -f "$repo_root/compose.yaml")
+compose=(docker compose --project-name "$project_name" --env-file "$env_file" -f "$repo_root/compose.yaml" -f "$repo_root/compose.backups.yaml")
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build
 integration_image=$("${compose[@]}" images -q spectarr)
@@ -84,6 +85,6 @@ then
     cd "$repo_root/frontend"
     SPECTARR_E2E_URL="http://127.0.0.1:$dashboard_port" \
     SPECTARR_E2E_PASSWORD=release-rehearsal-admin-password \
-    npm run test:e2e
+    SPECTARR_E2E_BACKUPS=true npm run test:e2e -- --workers=1
   )
 fi
