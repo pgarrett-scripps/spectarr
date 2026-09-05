@@ -29,7 +29,7 @@ dev = [
   "pytest-timeout>=2.4,<3",
   "pytest-xdist>=3.8,<4",
   "ruff>=0.12,<1",
-  "mypy>=1.15,<2",
+  "mypy>=1.15,<3",
 ]
 
 [project.scripts]
