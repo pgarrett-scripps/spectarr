@@ -4,6 +4,13 @@ All notable changes to Spectarr will be documented in this file. Releases follow
 
 ## Unreleased
 
+### Added
+
+- `SPECTARR_STORAGE_DIR` in the release Compose file mounts bulk artifact storage separately from the data directory, so the SQLite database can stay on local disk while artifacts live on large or network storage
+- Conversion side-cars now translate paths using every mount of the Spectarr container (longest prefix wins), so a separately mounted storage root converts correctly
+- The storage root is stamped with an identity marker at startup; Spectarr refuses to start when the expected marker is missing or belongs to another instance, so an unmounted storage share fails loudly instead of writing artifacts to the wrong disk
+- Startup now warns when the SQLite database sits on a network filesystem (CIFS, NFS, and similar), where SQLite locking is unsafe
+
 ## 0.2.0 - 2026-08-31
 
 ### Added

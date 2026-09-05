@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -56,7 +57,12 @@ class ConversionRunner(Protocol):
 class MsconvertCliRunner:
     """Use msconvert-cli for command construction and execute one isolated job."""
 
-    def __init__(self, container_data_root: Path | None = None, docker_data_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        container_data_root: Path | None = None,
+        docker_data_root: Path | None = None,
+        mount_map: dict[str, str] | None = None,
+    ) -> None:
         configured_container = os.getenv("SPECTARR_CONTAINER_DATA_ROOT")
         configured_docker = os.getenv("SPECTARR_DOCKER_DATA_ROOT")
         self.container_data_root = (container_data_root or Path(configured_container)).resolve() if (
@@ -67,6 +73,28 @@ class MsconvertCliRunner:
         ) else None
         if (self.container_data_root is None) != (self.docker_data_root is None):
             raise ValueError("Both container and Docker data roots must be configured together")
+        if mount_map is None and container_data_root is not None and docker_data_root is not None:
+            mount_map = {str(self.container_data_root): str(self.docker_data_root)}
+        self.mount_map = self._resolve_mount_map(mount_map)
+
+    def _resolve_mount_map(self, mount_map: dict[str, str] | None) -> list[tuple[Path, Path]]:
+        """Build (container path, host path) pairs, most specific mount first."""
+
+        if mount_map is None:
+            configured = os.getenv("SPECTARR_DOCKER_MOUNT_MAP")
+            if configured:
+                try:
+                    mount_map = json.loads(configured)
+                except json.JSONDecodeError as error:
+                    raise ValueError("SPECTARR_DOCKER_MOUNT_MAP must be a JSON object of paths") from error
+                if not isinstance(mount_map, dict):
+                    raise ValueError("SPECTARR_DOCKER_MOUNT_MAP must be a JSON object of paths")
+        if mount_map is None:
+            if self.container_data_root is None or self.docker_data_root is None:
+                return []
+            mount_map = {str(self.container_data_root): str(self.docker_data_root)}
+        pairs = [(Path(container), Path(host)) for container, host in mount_map.items()]
+        return sorted(pairs, key=lambda pair: len(pair[0].parts), reverse=True)
 
     def run(
         self,
@@ -118,7 +146,7 @@ class MsconvertCliRunner:
     def _map_docker_mount_sources(self, command: list[str]) -> list[str]:
         """Translate worker-container paths into paths visible to the host Docker daemon."""
 
-        if self.container_data_root is None or self.docker_data_root is None:
+        if not self.mount_map:
             return list(command)
         rewritten = list(command)
         for index, part in enumerate(rewritten[:-1]):
@@ -126,10 +154,11 @@ class MsconvertCliRunner:
                 continue
             pieces = rewritten[index + 1].split(":")
             source = Path(pieces[0]).resolve()
-            if source == self.container_data_root or source.is_relative_to(self.container_data_root):
-                relative = source.relative_to(self.container_data_root)
-                pieces[0] = str(self.docker_data_root / relative)
-                rewritten[index + 1] = ":".join(pieces)
+            for container_root, host_root in self.mount_map:
+                if source == container_root or source.is_relative_to(container_root):
+                    pieces[0] = str(host_root / source.relative_to(container_root))
+                    rewritten[index + 1] = ":".join(pieces)
+                    break
         return rewritten
 
     @staticmethod

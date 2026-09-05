@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import signal
 import socket
@@ -17,6 +18,8 @@ API_URL = "http://127.0.0.1:8000"
 DATA_ROOT = Path("/data")
 RUNTIME_CONFIG_DIRECTORY = ".spectarr"
 RUNTIME_SECRETS_FILE = "runtime-secrets.json"
+STORAGE_IDENTITY_FILE = "storage-id"
+NETWORK_FILESYSTEM_TYPES = frozenset({"cifs", "smb3", "smbfs", "nfs", "nfs4", "fuse.sshfs", "9p"})
 
 
 def process_commands() -> list[tuple[str, list[str], bool]]:
@@ -123,22 +126,39 @@ def prepare_runtime_secrets(data_root: Path = DATA_ROOT) -> Path:
     return path
 
 
-def _data_mount_source(mounts: object, destination: Path = DATA_ROOT) -> Path:
+def _container_mount_map(mounts: object, data_root: Path = DATA_ROOT) -> dict[str, str]:
     if not isinstance(mounts, list):
         raise RuntimeError("Docker returned an invalid mount description")
+    mapping: dict[str, str] = {}
     for mount in mounts:
-        if not isinstance(mount, dict) or mount.get("Destination") != str(destination):
+        if not isinstance(mount, dict):
             continue
+        destination = mount.get("Destination")
         source = mount.get("Source")
+        if not isinstance(destination, str) or not destination.startswith("/"):
+            continue
         if isinstance(source, str) and source.startswith("/"):
-            return Path(source)
-    raise RuntimeError(f"Could not find the {destination} mount in the Spectarr container")
+            mapping[destination] = source
+    if str(data_root) not in mapping:
+        raise RuntimeError(f"Could not find the {data_root} mount in the Spectarr container")
+    return mapping
 
 
-def prepare_docker_data_root(data_root: Path = DATA_ROOT) -> Path:
-    configured = os.getenv("SPECTARR_DOCKER_DATA_ROOT")
-    if configured:
-        return Path(configured)
+def prepare_docker_mount_map(data_root: Path = DATA_ROOT) -> dict[str, str]:
+    configured_map = os.getenv("SPECTARR_DOCKER_MOUNT_MAP")
+    if configured_map:
+        try:
+            mapping = json.loads(configured_map)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("SPECTARR_DOCKER_MOUNT_MAP must be a JSON object of paths") from exc
+        if not isinstance(mapping, dict):
+            raise RuntimeError("SPECTARR_DOCKER_MOUNT_MAP must be a JSON object of paths")
+        return mapping
+    configured_root = os.getenv("SPECTARR_DOCKER_DATA_ROOT")
+    if configured_root:
+        mapping = {str(data_root): configured_root}
+        os.environ["SPECTARR_DOCKER_MOUNT_MAP"] = json.dumps(mapping, sort_keys=True)
+        return mapping
     container_reference = os.getenv("SPECTARR_CONTAINER_ID") or socket.gethostname()
     try:
         completed = subprocess.run(
@@ -148,14 +168,107 @@ def prepare_docker_data_root(data_root: Path = DATA_ROOT) -> Path:
             text=True,
             timeout=10,
         )
-        source = _data_mount_source(json.loads(completed.stdout), data_root)
+        mapping = _container_mount_map(json.loads(completed.stdout), data_root)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError, RuntimeError) as exc:
         raise RuntimeError(
             "Could not discover the host Docker mount for /data. Confirm that the Docker socket is "
             "mounted, or set SPECTARR_DOCKER_DATA_ROOT explicitly."
         ) from exc
-    os.environ["SPECTARR_DOCKER_DATA_ROOT"] = str(source)
-    return source
+    os.environ["SPECTARR_DOCKER_MOUNT_MAP"] = json.dumps(mapping, sort_keys=True)
+    os.environ["SPECTARR_DOCKER_DATA_ROOT"] = mapping[str(data_root)]
+    return mapping
+
+
+def prepare_docker_data_root(data_root: Path = DATA_ROOT) -> Path:
+    return Path(prepare_docker_mount_map(data_root)[str(data_root)])
+
+
+def _read_identity(path: Path) -> str | None:
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise RuntimeError(f"Could not read the storage identity marker at {path}") from exc
+    return value or None
+
+
+def _write_identity(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{value}\n", encoding="utf-8")
+    if os.geteuid() == 0:
+        uid = int(os.getenv("SPECTARR_UID", "1000"))
+        gid = int(os.getenv("SPECTARR_GID", "1000"))
+        os.chown(path.parent, uid, gid)
+        os.chown(path, uid, gid)
+
+
+def verify_storage_identity(data_root: Path = DATA_ROOT) -> str:
+    """Refuse to run against the wrong (or missing) storage root.
+
+    The storage root may live on separate, possibly network, storage. If that
+    mount is absent at startup, writing into the empty directory underneath it
+    would strand artifacts on the wrong disk and desync the database.
+    """
+
+    local_path = data_root / RUNTIME_CONFIG_DIRECTORY / STORAGE_IDENTITY_FILE
+    storage_path = data_root / "storage" / RUNTIME_CONFIG_DIRECTORY / STORAGE_IDENTITY_FILE
+    local_identity = _read_identity(local_path)
+    storage_identity = _read_identity(storage_path)
+    if local_identity and storage_identity:
+        if local_identity != storage_identity:
+            raise RuntimeError(
+                f"The storage root at {data_root / 'storage'} belongs to a different Spectarr instance "
+                f"({storage_identity}, expected {local_identity}). Mount the correct storage, or delete "
+                f"{local_path} to adopt this storage root."
+            )
+        return local_identity
+    if local_identity and not storage_identity:
+        raise RuntimeError(
+            f"The storage root at {data_root / 'storage'} has no identity marker but this instance "
+            f"expects {local_identity}. The storage mount is probably missing or empty. Mount it and "
+            f"restart, or delete {local_path} if the storage root was reset on purpose."
+        )
+    identity = storage_identity or secrets.token_hex(16)
+    _write_identity(storage_path, identity)
+    _write_identity(local_path, identity)
+    return identity
+
+
+def _filesystem_type_for(path: Path, mounts_text: str) -> str | None:
+    best_point = ""
+    best_type: str | None = None
+    for line in mounts_text.splitlines():
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        mount_point = fields[1].replace("\\040", " ")
+        if not (str(path) == mount_point or str(path).startswith(mount_point.rstrip("/") + "/")):
+            continue
+        if len(mount_point) >= len(best_point):
+            best_point = mount_point
+            best_type = fields[2]
+    return best_type
+
+
+def warn_if_database_on_network_filesystem() -> None:
+    url = os.getenv("SPECTARR_DATABASE_URL", "")
+    match = re.match(r"^sqlite(?:\+\w+)?:///(/.+)$", url)
+    if not match:
+        return
+    try:
+        mounts_text = Path("/proc/mounts").read_text(encoding="utf-8")
+    except OSError:
+        return
+    filesystem = _filesystem_type_for(Path(match.group(1)), mounts_text)
+    if filesystem in NETWORK_FILESYSTEM_TYPES:
+        print(
+            f"WARNING: the SQLite database at {match.group(1)} is on a {filesystem} network filesystem. "
+            "SQLite locking is unreliable over network filesystems and can corrupt the database. "
+            "Keep the database on local disk and move only the storage root to network storage.",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def wait_for_api(api_process: subprocess.Popen, timeout_seconds: float = 120) -> None:
@@ -187,8 +300,10 @@ def terminate(processes: list[subprocess.Popen]) -> None:
 
 def main() -> int:
     prepare_data_directories()
+    verify_storage_identity()
+    warn_if_database_on_network_filesystem()
     prepare_runtime_secrets()
-    prepare_docker_data_root()
+    prepare_docker_mount_map()
     os.environ["HOME"] = "/tmp/spectarr-home"
     os.environ.setdefault("SPECTARR_API_URL", API_URL)
     os.environ.setdefault("SPECTARR_URL", API_URL)

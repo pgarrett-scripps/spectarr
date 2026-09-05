@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import os
 import tempfile
 import threading
 import unittest
@@ -156,6 +157,30 @@ class ConversionServiceTests(unittest.TestCase):
         command = ["docker", "run", "-v", "/data/storage/hash:/input/sample.raw", "image:1"]
         rewritten = runner._map_docker_mount_sources(command)
         self.assertIn("/host/project/data/storage/hash:/input/sample.raw", rewritten)
+
+    def test_maps_worker_paths_with_the_most_specific_mount(self) -> None:
+        runner = MsconvertCliRunner(
+            mount_map={"/data": "/host/data", "/data/storage": "/tank/spectarr"}
+        )
+        command = [
+            "docker",
+            "run",
+            "-v",
+            "/data/storage/hash:/input/sample.raw",
+            "-v",
+            "/data/scratch/job:/output",
+            "image:1",
+        ]
+        rewritten = runner._map_docker_mount_sources(command)
+        self.assertIn("/tank/spectarr/hash:/input/sample.raw", rewritten)
+        self.assertIn("/host/data/scratch/job:/output", rewritten)
+
+    def test_mount_map_is_read_from_the_environment(self) -> None:
+        environment = {"SPECTARR_DOCKER_MOUNT_MAP": '{"/data": "/host/data", "/data/storage": "/tank/s"}'}
+        with patch.dict(os.environ, environment, clear=False):
+            runner = MsconvertCliRunner()
+        command = ["docker", "run", "-v", "/data/storage/hash:/input/a.raw", "image:1"]
+        self.assertIn("/tank/s/hash:/input/a.raw", runner._map_docker_mount_sources(command))
 
     def test_runner_names_conversion_container_for_cancellation(self) -> None:
         output_dir = self.root / "output"

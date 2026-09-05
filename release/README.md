@@ -26,6 +26,8 @@ No setting in `.env.example` is required. Copy it to `.env` only when you want t
 
 Compose runs exactly one container. That container serves the dashboard and API on port 8000, serves MCP on port 8001, and supervises the internal workers. All durable state is below `SPECTARR_DATA_DIR`. Metadata is stored in `spectarr.db`, artifacts are stored below `storage`, and generated secrets are stored below `.spectarr`.
 
+Mass spectrometry artifacts are usually far larger than the metadata. Set `SPECTARR_STORAGE_DIR` to keep the bulk artifact storage on a different disk — typically large or network storage — while `SPECTARR_DATA_DIR` stays on local disk. The SQLite database must remain on a local filesystem; SQLite locking is unreliable over CIFS and NFS, and Spectarr warns at startup when the database sits on a network filesystem. Spectarr stamps the storage root with an identity marker and refuses to start if the marker it expects is missing or belongs to another instance, so an unmounted network share fails loudly instead of silently writing artifacts to the wrong disk. If you reset the storage root on purpose, delete `data/.spectarr/storage-id` and restart.
+
 Published ports bind to `127.0.0.1` by default. Put the dashboard behind an HTTPS reverse proxy for network access. Do not expose the Docker socket or MCP port to untrusted networks.
 
 The converter requires Docker access to run the vendor-compatible ProteoWizard image. A rootless Docker daemon is recommended. Set `DOCKER_SOCKET` when its socket is not `/var/run/docker.sock`. Spectarr normally discovers the host path or named volume mounted at `/data`. Set `SPECTARR_DOCKER_DATA_ROOT` only if discovery is unavailable in a custom container runtime.
