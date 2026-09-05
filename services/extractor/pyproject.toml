@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spectarr-extractor"
-version = "0.2.0"
+version = "0.3.0"
 description = "Streaming mass spectrometry metadata extraction worker for Spectarr"
 license = "Apache-2.0"
 requires-python = ">=3.12"

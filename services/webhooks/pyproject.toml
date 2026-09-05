@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spectarr-webhook-worker"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lease-based signed webhook delivery worker for Spectarr"
 license = "Apache-2.0"
 readme = "README.md"

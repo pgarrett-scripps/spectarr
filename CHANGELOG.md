@@ -4,6 +4,8 @@ All notable changes to Spectarr will be documented in this file. Releases follow
 
 ## Unreleased
 
+## 0.3.0 - 2026-09-04
+
 ### Fixed
 
 - Project membership filters now cover collection endpoints, overview totals, processing batches, events, and webhook delivery listings
