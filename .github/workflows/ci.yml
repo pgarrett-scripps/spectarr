@@ -14,7 +14,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Resolve pinned dependencies
         id: dependencies
         shell: bash
@@ -26,34 +26,38 @@ jobs:
           echo "mzmlpy_ref=$MZMLPY_REF" >> "$GITHUB_OUTPUT"
           echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
           echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ steps.dependencies.outputs.msconvert_repository }}
           ref: ${{ steps.dependencies.outputs.msconvert_ref }}
           path: dependencies/msconvert-cli
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
           ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
           path: dependencies/mzmlpy
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
           ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
           path: dependencies/spxtacular
-      - uses: actions/setup-python@v7
+      - name: Apply pinned converter correction
+        run: git -C dependencies/msconvert-cli apply "$GITHUB_WORKSPACE/release/dependency-patches/msconvert-cli-sage.patch"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v7
-      - uses: actions/setup-node@v7
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install backend
         run: uv sync --project backend --locked --extra dev --extra sdrf
       - name: Install dashboard
         run: npm ci --prefix frontend
+      - name: Audit dashboard dependencies
+        run: npm audit --prefix frontend --audit-level=low
       - name: Test
         run: make test MSCONVERT_CLI_SOURCE=dependencies/msconvert-cli MZMLPY_SOURCE=dependencies/mzmlpy SPXTACULAR_SOURCE=dependencies/spxtacular
 
@@ -61,7 +65,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: spectarr
       - name: Resolve pinned dependencies
@@ -76,24 +80,26 @@ jobs:
           echo "mzmlpy_ref=$MZMLPY_REF" >> "$GITHUB_OUTPUT"
           echo "spxtacular_repository=$SPXTACULAR_REPOSITORY" >> "$GITHUB_OUTPUT"
           echo "spxtacular_ref=$SPXTACULAR_REF" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ steps.dependencies.outputs.msconvert_repository }}
           ref: ${{ steps.dependencies.outputs.msconvert_ref }}
           path: msconvert-cli
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ steps.dependencies.outputs.mzmlpy_repository }}
           ref: ${{ steps.dependencies.outputs.mzmlpy_ref }}
           path: mzmlpy
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ steps.dependencies.outputs.spxtacular_repository }}
           ref: ${{ steps.dependencies.outputs.spxtacular_ref }}
           path: spxtacular
-      - uses: actions/setup-node@v7
+      - name: Apply pinned converter correction
+        run: git -C msconvert-cli apply "$GITHUB_WORKSPACE/spectarr/release/dependency-patches/msconvert-cli-sage.patch"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "26"
           cache: npm
           cache-dependency-path: spectarr/frontend/package-lock.json
       - name: Install browser test dependencies
@@ -101,8 +107,28 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
       - name: Run clean-stack integration smoke test
         working-directory: spectarr
         env:
           SPECTARR_RUN_E2E: "true"
+          SPECTARR_SECURITY_AUDIT: "true"
         run: scripts/ci-integration.sh
+      - name: Preserve simulated instrument results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: simulated-instrument-results
+          path: |
+            /tmp/spectarr-instrument-rehearsal-*/results.json
+            /tmp/spectarr-instrument-rehearsal-*/external-results.json
+            /tmp/spectarr-instrument-rehearsal-*/IMAGE
+            /tmp/spectarr-instrument-rehearsal-*/failure.txt
+          if-no-files-found: ignore
+      - name: Preserve security reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: security-reports
+          path: /tmp/spectarr-security-*/
+          if-no-files-found: ignore

@@ -383,6 +383,7 @@ class AnnotationRead(ApiModel):
 
 
 class HealthRead(BaseModel):
+    mcp_public_url: str | None = None
     status: Literal["ok"] = "ok"
     database: Literal["ok"] = "ok"
     storage: Literal["ok"] = "ok"

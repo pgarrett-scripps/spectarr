@@ -59,6 +59,11 @@ compose=(docker compose --project-name "$project_name" --env-file "$env_file" -f
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build
 integration_image=$("${compose[@]}" images -q spectarr)
+if [[ ${SPECTARR_SECURITY_AUDIT:-false} == "true" ]]
+then
+  python3 "$repo_root/scripts/audit-image.py" "$integration_image" "/tmp/spectarr-security-$project_name"
+fi
+python3 "$repo_root/scripts/instrument-rehearsal.py" --image "$integration_image"
 SPECTARR_SMOKE_URL="http://127.0.0.1:$dashboard_port/api/v1" \
 SPECTARR_SMOKE_MCP_URL="http://127.0.0.1:$mcp_port/mcp" \
 python3 "$repo_root/scripts/smoke_test.py"

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from ..models import ExtractionResult, SpectrumObservation, SummaryBuilder
-from .base import ProviderError, normalized_format
+from .base import ProviderError, normalized_format, open_text_spectrum
 
 
 class MgfProvider:
@@ -28,7 +28,7 @@ class MgfProvider:
         current: dict[str, object] | None = None
         malformed_lines = 0
         try:
-            with path.open("rt", encoding="utf-8", errors="replace") as stream:
+            with open_text_spectrum(path) as stream:
                 for raw_line in stream:
                     line = raw_line.strip()
                     if not line:
@@ -75,7 +75,7 @@ class MgfProvider:
                     current["mz_max"] = (
                         mz_value if current["mz_max"] is None else max(float(current["mz_max"]), mz_value)
                     )
-        except OSError as error:
+        except (OSError, EOFError) as error:
             raise ProviderError(f"Could not read MGF: {error}") from error
         if current is not None:
             builder.add(self._observation(current))

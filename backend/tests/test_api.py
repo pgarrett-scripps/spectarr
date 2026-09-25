@@ -88,6 +88,15 @@ async def test_library_hierarchy(client: AsyncClient, hierarchy: dict[str, str])
     assert [project["name"] for project in projects] == ["Proteomics"]
 
 
+async def test_health_exposes_configured_mcp_endpoint(client: AsyncClient, monkeypatch) -> None:
+    from spectarr.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "mcp_public_url", "https://spectarr.example/agent/mcp")
+    response = await client.get("/api/v1/system/health")
+    assert response.status_code == 200
+    assert response.json()["mcp_public_url"] == "https://spectarr.example/agent/mcp"
+
+
 async def test_rejects_sample_from_another_experiment(client: AsyncClient, hierarchy: dict[str, str]) -> None:
     experiment = (await client.post(
         "/api/v1/experiments",
@@ -573,3 +582,23 @@ async def test_annotations(client: AsyncClient, hierarchy: dict[str, str]) -> No
     )
     assert response.status_code == 201
     assert response.json()["tags"] == ["qc-pass"]
+
+
+async def test_cancel_queued_job_preserves_running_and_completed_work(client: AsyncClient) -> None:
+    response = await client.post('/api/v1/jobs', json={'kind': 'verify'})
+    assert response.status_code == 201, response.text
+    job_id = response.json()['id']
+    cancelled = await client.post(f'/api/v1/jobs/{job_id}/cancel')
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()['state'] == 'cancelled'
+    assert cancelled.json()['finished_at'] is not None
+    assert (await client.post(f'/api/v1/jobs/{job_id}/cancel')).status_code == 200
+    assert (await client.post(f'/api/v1/jobs/{job_id}/retry')).status_code == 200
+    claimed = await client.post(f'/api/v1/jobs/{job_id}/claim')
+    assert claimed.status_code == 200
+    assert (await client.post(f'/api/v1/jobs/{job_id}/cancel')).status_code == 409
+    assert (await client.get(f'/api/v1/jobs/{job_id}')).json()['state'] == 'running'
+    completed = await client.patch(f'/api/v1/jobs/{job_id}', json={'state': 'succeeded'})
+    assert completed.status_code == 200
+    assert (await client.post(f'/api/v1/jobs/{job_id}/cancel')).status_code == 409
+    assert (await client.get(f'/api/v1/jobs/{job_id}')).json()['state'] == 'succeeded'

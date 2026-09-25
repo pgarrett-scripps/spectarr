@@ -41,7 +41,7 @@ frontend-test:
 	cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build
 
 services-install:
-	uv venv --allow-existing --python 3.12 services/.venv
+	uv venv --allow-existing --python 3.14 services/.venv
 	test -f "$(MSCONVERT_CLI_SOURCE)/pyproject.toml"
 	test -f "$(MZMLPY_SOURCE)/pyproject.toml"
 	test -f "$(SPXTACULAR_SOURCE)/pyproject.toml"

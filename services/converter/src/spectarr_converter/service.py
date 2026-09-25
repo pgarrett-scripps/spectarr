@@ -15,7 +15,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Protocol
-from xml.etree import ElementTree
+from defusedxml import ElementTree
+from defusedxml.common import DefusedXmlException
 
 from spxtacular import write_indexed_mzml_gzip
 
@@ -23,7 +24,7 @@ from .models import ConversionRequest, ConversionResult, OutputArtifact, OutputF
 from .recipes import Recipe, compile_recipe, get_recipe
 
 
-PINNED_DEFAULT_IMAGE = "proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:3.0.26121-ed8dc8a"
+PINNED_DEFAULT_IMAGE = "proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:skyline_26.1.0.266-578b175@sha256:448a833eb92eac2ca731f2461c046963c0c2afafb3550b4dfb6fc3914cec7b0e"
 SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
@@ -127,6 +128,7 @@ class MsconvertCliRunner:
         )
         command = self._map_docker_mount_sources(command)
         command = self._make_input_mounts_read_only(command)
+        command[2:2] = ["--network", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "512"]
         completed = converter.execute_command(
             command,
             output_dir,
@@ -326,7 +328,8 @@ class ConversionService:
         progress: Callable[[str, float], None] | None = None,
     ) -> list[OutputArtifact]:
         suffix = f".{output_format.value.lower()}"
-        candidates = sorted(path for path in output_dir.rglob("*") if path.is_file() and path.suffix.lower() == suffix)
+        candidates = sorted(path for path in output_dir.rglob("*")
+                            if path.is_file() and path.name.lower().endswith((suffix, f"{suffix}.gz")))
         if not candidates:
             raise ValueError(f"No {output_format.value} output was produced")
         artifacts: list[OutputArtifact] = []
@@ -336,10 +339,11 @@ class ConversionService:
             if output_format == OutputFormat.MZML:
                 if progress:
                     progress("indexing", 0.95)
-                artifact_path = path.with_name(f"{path.name}.gz")
+                artifact_path = path if path.suffix.lower() == ".gz" else path.with_name(f"{path.name}.gz")
                 write_indexed_mzml_gzip(path, artifact_path)
                 self._validate_indexed_mzml(artifact_path)
-                path.unlink()
+                if artifact_path != path:
+                    path.unlink()
             artifacts.append(
                 OutputArtifact(
                     path=str(artifact_path),
@@ -362,7 +366,7 @@ class ConversionService:
                         root_name = element.tag.rsplit("}", 1)[-1]
                     if event == "end":
                         element.clear()
-        except (OSError, ElementTree.ParseError) as error:
+        except (OSError, ElementTree.ParseError, DefusedXmlException) as error:
             raise ValueError(f"Invalid self-indexed mzML gzip: {path.name}") from error
         if root_name not in {"mzML", "indexedmzML"}:
             raise ValueError(f"Unexpected mzML root element in {path.name}")
@@ -373,14 +377,18 @@ class ConversionService:
             raise ValueError(f"Converter produced an empty file: {path.name}")
         if output_format in {OutputFormat.MZML, OutputFormat.MZXML}:
             try:
-                _, root = next(ElementTree.iterparse(path, events=("start",)))
-            except (ElementTree.ParseError, StopIteration) as error:
+                opener = gzip.open if path.suffix.lower() == ".gz" else open
+                with opener(path, "rb") as stream:
+                    _, root = next(ElementTree.iterparse(stream, events=("start",)))
+            except (OSError, EOFError, ElementTree.ParseError, DefusedXmlException, StopIteration) as error:
                 raise ValueError(f"Invalid {output_format.value} XML: {path.name}") from error
             valid_roots = {"mzML", "indexedmzML"} if output_format == OutputFormat.MZML else {"mzXML"}
             if root.tag.rsplit("}", 1)[-1] not in valid_roots:
                 raise ValueError(f"Unexpected {output_format.value} root element in {path.name}")
             return
-        prefix = path.read_bytes()[:65536].decode("utf-8", errors="replace")
+        opener = gzip.open if path.suffix.lower() == ".gz" else open
+        with opener(path, "rb") as stream:
+            prefix = stream.read(65536).decode("utf-8", errors="replace")
         if output_format == OutputFormat.MGF and "BEGIN IONS" not in prefix:
             raise ValueError(f"Invalid MGF output: {path.name}")
         if output_format == OutputFormat.MS2:

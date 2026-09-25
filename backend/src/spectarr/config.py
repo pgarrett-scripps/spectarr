@@ -4,6 +4,7 @@ from functools import lru_cache
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,7 +17,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Spectarr"
+    app_name: str = "MassSpec"
     environment: str = "development"
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite:///./data/spectarr.db"
@@ -27,12 +28,15 @@ class Settings(BaseSettings):
     library_filename_template: str = "{run_name}__{sample_name}__{run_id:8}{extension}"
     import_roots: list[Path] = []
     max_upload_bytes: int = 100 * 1024 * 1024 * 1024
+    remote_imports_enabled: bool = True
+    remote_download_concurrency: int = Field(default=2, ge=1, le=8)
     worker_token: str | None = None
     job_lease_seconds: int = 300
     auth_mode: Literal["password", "local"] = "password"
     local_user: str = "admin"
     allow_remote_no_auth: bool = False
     bind_address: str = "127.0.0.1"
+    trusted_hosts: list[str] = ["localhost"]
     auth_enabled: bool | None = None
     session_hours: int = 24
     upload_session_hours: int = 24
@@ -44,6 +48,7 @@ class Settings(BaseSettings):
     spectrum_reader_url: str | None = None
     spectrum_reader_timeout_seconds: float = 30.0
     dashboard_root: Path | None = None
+    mcp_public_url: str | None = None
     restore_mode: bool = False
     backup_root: Path | None = None
     backup_image: str | None = None
@@ -54,6 +59,18 @@ class Settings(BaseSettings):
     @classmethod
     def expand_storage_root(cls, value: str | Path) -> Path:
         return Path(value).expanduser()
+
+    @field_validator("mcp_public_url", mode="before")
+    @classmethod
+    def validate_mcp_public_url(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        parsed = urlsplit(value)
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query or parsed.fragment):
+            raise ValueError("MCP public URL must be an HTTP or HTTPS endpoint without credentials, query or fragment")
+        return value
 
     @field_validator("library_root", mode="before")
     @classmethod
@@ -69,7 +86,7 @@ class Settings(BaseSettings):
     @classmethod
     def require_sqlite(cls, value: str) -> str:
         if not value.startswith("sqlite:///"):
-            raise ValueError("Spectarr supports SQLite database URLs only")
+            raise ValueError("MassSpec supports SQLite database URLs only")
         return value
 
     @field_validator("library_link_mode")

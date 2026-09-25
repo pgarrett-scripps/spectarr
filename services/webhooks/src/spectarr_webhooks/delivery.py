@@ -7,6 +7,9 @@ import hmac
 import ipaddress
 import json
 import socket
+import ssl
+from contextlib import contextmanager
+from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import ClassVar
@@ -54,12 +57,12 @@ class WebhookSender:
         self.max_response_bytes = max_response_bytes
         self.allow_http = allow_http
         self.allow_private_networks = allow_private_networks
-        self.opener = opener or request.build_opener(NoRedirectHandler()).open
+        self.opener = opener
         self.resolver = resolver
 
     def send(self, delivery: ClaimedDelivery, timestamp: int) -> DeliveryOutcome:
         try:
-            validate_destination(
+            addresses = validate_destination(
                 delivery.url,
                 self.allow_http,
                 self.allow_private_networks,
@@ -70,19 +73,23 @@ class WebhookSender:
             headers = self._headers(delivery, timestamp, body)
             outbound = request.Request(delivery.url, data=body, headers=headers, method="POST")
             try:
-                with self.opener(outbound, timeout=self.timeout_seconds) as response:
+                opened = self.opener(outbound, timeout=self.timeout_seconds) if self.opener else open_pinned(
+                    outbound, addresses, self.timeout_seconds
+                )
+                with opened as response:
                     status = int(response.status)
                     response_body = response.read(self.max_response_bytes + 1)
             except error.HTTPError as http_error:
-                status = int(http_error.code)
-                response_body = http_error.read(self.max_response_bytes + 1)
+                with http_error:
+                    status = int(http_error.code)
+                    response_body = http_error.read(self.max_response_bytes + 1)
             detail = response_summary(response_body, self.max_response_bytes)
             return classify_status(status, detail)
         except UnsafeDestination as unsafe:
             return DeliveryOutcome("failed", error=str(unsafe))
         except (json.JSONDecodeError, UnicodeEncodeError) as invalid:
             return DeliveryOutcome("failed", error=f"Invalid canonical JSON body: {invalid}")
-        except (error.URLError, TimeoutError, OSError) as transport_error:
+        except (error.URLError, TimeoutError, OSError, HTTPException) as transport_error:
             reason = str(getattr(transport_error, "reason", transport_error))
             return DeliveryOutcome("retry", error=f"Webhook transport error: {reason}"[:10000])
 
@@ -105,7 +112,7 @@ def validate_destination(
     allow_http: bool,
     allow_private_networks: bool = False,
     resolver: Callable = socket.getaddrinfo,
-) -> None:
+) -> tuple[str, ...]:
     if not url or any(character in url for character in ("\r", "\n", "\x00")):
         raise UnsafeDestination("Webhook URL contains invalid characters")
     parsed = parse.urlsplit(url)
@@ -125,8 +132,6 @@ def validate_destination(
         raise UnsafeDestination("Webhook URL contains an invalid port") from invalid_port
     if port is not None and not 1 <= port <= 65535:
         raise UnsafeDestination("Webhook URL contains an invalid port")
-    if allow_private_networks:
-        return
     addresses = {
         str(sockaddr[0]).partition("%")[0]
         for _family, _kind, _protocol, _canonical, sockaddr in resolver(
@@ -144,10 +149,36 @@ def validate_destination(
             raise UnsafeDestination(
                 "Webhook hostname resolved to an invalid address"
             ) from invalid_address
-        if not destination.is_global or destination.is_multicast:
+        if not allow_private_networks and (not destination.is_global or destination.is_multicast):
             raise UnsafeDestination(
                 "Webhook destinations on private, loopback, link-local, or reserved networks are blocked"
             )
+    return tuple(sorted(addresses))
+
+
+@contextmanager
+def open_pinned(outbound: request.Request, addresses: tuple[str, ...], timeout: float):
+    """Connect to a checked address while preserving TLS hostname verification."""
+    parsed = parse.urlsplit(outbound.full_url)
+    secure = parsed.scheme == "https"
+    port = parsed.port or (443 if secure else 80)
+    connection = (HTTPSConnection if secure else HTTPConnection)(parsed.hostname, port, timeout=timeout)
+    try:
+        for index, address in enumerate(addresses):
+            try:
+                connection.sock = socket.create_connection((address, port), timeout=timeout)
+                break
+            except OSError:
+                if index == len(addresses) - 1:
+                    raise
+        if secure:
+            connection.sock = ssl.create_default_context().wrap_socket(connection.sock, server_hostname=parsed.hostname)
+        path = parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+        connection.request("POST", path, body=outbound.data, headers=dict(outbound.header_items()))
+        with connection.getresponse() as response:
+            yield response
+    finally:
+        connection.close()
 
 
 def signature_header(secret: str, timestamp: int, body: bytes) -> str:

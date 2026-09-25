@@ -1,5 +1,7 @@
 # Release checklist
 
+The [September 25 local candidate](acceptance-2026-09-25.md) adds explicit vendor, agent-discovery, maintenance, and recovery evidence. Use its exact image ID when reproducing that candidate. A public release still requires the hosted gates below.
+
 ## Automated gate
 
 Every release tag must satisfy these gates. Component CI and Linux integration must pass before the candidate image is built. Windows packaging and bundle preparation may run in parallel:

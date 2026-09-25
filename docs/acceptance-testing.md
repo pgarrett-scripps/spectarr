@@ -1,5 +1,7 @@
 # Real-file acceptance testing
 
+The September 25, 2026 follow-up is documented in [acceptance and release preparation](acceptance-2026-09-25.md). It validates the current working candidate and replaces the historical Bruker summary interpretation below. Source observations and converted spectrum counts are checked separately.
+
 ## 0.3.0 release validation
 
 On September 4, 2026 (Pacific time), the complete vendor matrix passed against application commit `22100fcf09b26d774e210a5877b8e053d154e97f`, built as version 0.3.0 with the pinned dependencies. Tests used separate temporary bind mounts for the database, artifact storage, and backups. Existing authorized fixtures were mounted read-only. See [machine-readable results](acceptance-0.3.0.json) for checksums, warnings, the local image ID, and backup measurements.

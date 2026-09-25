@@ -705,3 +705,112 @@ class WebhookDelivery(TimestampMixin, Base):
 
     destination: Mapped[WebhookDestination] = relationship(back_populates="deliveries")
     event: Mapped[EventOutbox] = relationship()
+
+
+class RemoteDownloadSettings(Base):
+    __tablename__ = "remote_download_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    concurrency: Mapped[int] = mapped_column(nullable=False)
+
+
+class RemoteImport(TimestampMixin, Base):
+    __tablename__ = "remote_imports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    batch_id: Mapped[str] = mapped_column(String(36), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    experiment_id: Mapped[str] = mapped_column(ForeignKey("experiments.id", ondelete="CASCADE"))
+    accession: Mapped[str] = mapped_column(String(32))
+    file_id: Mapped[str] = mapped_column(String(255))
+    filename: Mapped[str] = mapped_column(String(1024))
+    run_name: Mapped[str] = mapped_column(String(255))
+    sample_name: Mapped[str] = mapped_column(String(255))
+    source: Mapped[dict[str, Any]] = mapped_column(JSON)
+    state: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    byte_size: Mapped[int] = mapped_column(nullable=False)
+    bytes_received: Mapped[int] = mapped_column(default=0)
+    reserved_bytes: Mapped[int] = mapped_column(default=0, server_default="0")
+    validator: Mapped[str | None] = mapped_column(String(1024))
+    attempts: Mapped[int] = mapped_column(default=0)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"))
+    artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id", ondelete="SET NULL"))
+
+
+class ExternalRoot(TimestampMixin, Base):
+    __tablename__ = "external_roots"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(255))
+    path: Mapped[str] = mapped_column(String(2048))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    identity: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="unverified")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class ExternalEntry(TimestampMixin, Base):
+    __tablename__ = "external_entries"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(1024))
+    format: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(16))
+    alias_id: Mapped[str | None] = mapped_column(ForeignKey("external_entries.id", ondelete="CASCADE"))
+
+
+class ExternalRevision(TimestampMixin, Base):
+    __tablename__ = "external_revisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    entry_id: Mapped[str] = mapped_column(ForeignKey("external_entries.id", ondelete="CASCADE"), index=True)
+    sha256: Mapped[str] = mapped_column(String(64))
+    fingerprint: Mapped[str] = mapped_column(String(96), index=True)
+    byte_size: Mapped[int] = mapped_column()
+    manifest: Mapped[dict | None] = mapped_column(JSON)
+
+
+class ExternalLocation(TimestampMixin, Base):
+    __tablename__ = "external_locations"
+    __table_args__ = (UniqueConstraint("root_id", "relative_path"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    root_id: Mapped[str] = mapped_column(ForeignKey("external_roots.id", ondelete="CASCADE"), index=True)
+    entry_id: Mapped[str] = mapped_column(ForeignKey("external_entries.id", ondelete="CASCADE"), index=True)
+    relative_path: Mapped[str] = mapped_column(String(2048))
+    revision_id: Mapped[str | None] = mapped_column(ForeignKey("external_revisions.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(32), default="observed")
+    readiness: Mapped[str] = mapped_column(String(32), default="unknown")
+    signature: Mapped[str] = mapped_column(String(255))
+    byte_size: Mapped[int] = mapped_column()
+    last_scan_id: Mapped[str | None] = mapped_column(String(36))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ExternalTask(TimestampMixin, Base):
+    __tablename__ = "external_tasks"
+    __table_args__ = (UniqueConstraint("root_id", "request_key"),)
+    request_key: Mapped[str | None] = mapped_column(String(128))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    root_id: Mapped[str] = mapped_column(ForeignKey("external_roots.id", ondelete="CASCADE"), index=True)
+    location_id: Mapped[str | None] = mapped_column(ForeignKey("external_locations.id", ondelete="CASCADE"))
+    revision_id: Mapped[str | None] = mapped_column(ForeignKey("external_revisions.id", ondelete="SET NULL"))
+    experiment_id: Mapped[str | None] = mapped_column(ForeignKey("experiments.id", ondelete="SET NULL"))
+    artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(16))
+    state: Mapped[str] = mapped_column(String(32), default="pending")
+    sequence: Mapped[int] = mapped_column(default=0)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class ExternalObservation(TimestampMixin, Base):
+    __tablename__ = "external_observations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    location_id: Mapped[str] = mapped_column(ForeignKey("external_locations.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("external_tasks.id", ondelete="SET NULL"))
+    facts: Mapped[dict] = mapped_column(JSON)

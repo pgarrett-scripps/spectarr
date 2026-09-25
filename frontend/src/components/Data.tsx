@@ -24,8 +24,9 @@ export function RunStatusBadge({ status }: { status: RunStatus }) {
   const map = {
     ready: { icon: CheckCircle2, label: 'Ready' },
     processing: { icon: LoaderCircle, label: 'Processing' },
-    warning: { icon: CircleAlert, label: 'Limited source' },
-    failed: { icon: XCircle, label: 'Failed' }
+    warning: { icon: CircleAlert, label: 'Needs review' },
+    failed: { icon: XCircle, label: 'Failed' },
+    cancelled: { icon: XCircle, label: 'Cancelled' }
   }
   const item = map[status]
   return <span className={`status-badge status-${status}`}><item.icon size={14} />{item.label}</span>
@@ -36,7 +37,8 @@ export function JobStatusBadge({ status }: { status: Job['status'] }) {
     queued: { icon: Clock3, label: 'Queued' },
     running: { icon: LoaderCircle, label: 'Running' },
     complete: { icon: CheckCircle2, label: 'Complete' },
-    failed: { icon: XCircle, label: 'Failed' }
+    failed: { icon: XCircle, label: 'Failed' },
+    cancelled: { icon: XCircle, label: 'Cancelled' }
   }
   const item = map[status]
   return <span className={`status-badge status-${status}`}><item.icon size={14} />{item.label}</span>

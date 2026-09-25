@@ -1,19 +1,21 @@
-# Spectarr
+# MassSpec
+
+Your mass spectrometry workspace. Formerly Spectarr. Existing package names, configuration keys, and storage paths remain compatible.
 
 ### A self-hosted home for mass spectrometry data
 
-Spectarr turns scattered instrument files into an organized, searchable workspace. Keep every original acquisition, inspect spectra in the browser, generate reproducible open formats, and automate intake from instrument computers.
+MassSpec turns scattered instrument files into an organized, searchable workspace. Keep every original acquisition, inspect spectra in the browser, generate reproducible open formats, and automate intake from instrument computers.
 
 [![CI](https://github.com/pgarrett-scripps/spectarr/actions/workflows/ci.yml/badge.svg)](https://github.com/pgarrett-scripps/spectarr/actions/workflows/ci.yml)
 [![Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ![One container](https://img.shields.io/badge/deployment-one%20container-7c5cff)
 ![SQLite](https://img.shields.io/badge/database-SQLite-0f80cc)
 
-![Spectarr workspace overview](docs/assets/spectarr-overview.png)
+![MassSpec workspace overview](docs/assets/spectarr-overview.png)
 
 ## Stop digging through instrument folders
 
-Mass spectrometry data tends to end up spread across acquisition PCs, network shares, processing folders, and personal naming systems. Spectarr gives a lab one place to answer the questions that should be easy:
+Mass spectrometry data tends to end up spread across acquisition PCs, network shares, processing folders, and personal naming systems. MassSpec gives a lab one place to answer the questions that should be easy:
 
 - Where is the original file for this run?
 - Which project and sample does it belong to?
@@ -21,7 +23,7 @@ Mass spectrometry data tends to end up spread across acquisition PCs, network sh
 - What did the instrument actually record?
 - Can I trust the file and reproduce how a derivative was made?
 
-Spectarr stores source acquisitions as immutable, checksummed artifacts. It also creates a normal human-readable library, so existing search engines and analysis tools can keep working with ordinary files and folders.
+MassSpec stores source acquisitions as immutable, checksummed artifacts. It also creates a normal human-readable library, so existing search engines and analysis tools can keep working with ordinary files and folders.
 
 ## What you can do
 
@@ -30,6 +32,8 @@ Spectarr stores source acquisitions as immutable, checksummed artifacts. It also
 Browse from projects to experiments to individual runs. Search across the whole workspace, move inbox acquisitions into the right experiment, and keep source files, samples, processing history, and annotations together.
 
 Import several acquisitions at once with a shared project and experiment. Review filename-based run names, edit samples, follow each upload, and retry failed items without repeating completed imports. See [batch import](docs/batch-import.md).
+
+Download public PRIDE acquisitions directly to the server with **Online repository (PRIDE)**. Search filenames, select matching files in bulk, preview available SDRF sample metadata, and follow a persistent queue with parallel resumable transfers, cancellation, and retries. Two files download concurrently by default. Administrators can change the limit from 1 through 8 under **Settings → Downloads** without restarting. See [online dataset import](docs/online-dataset-import.md).
 
 ### Inspect spectra without leaving the browser
 
@@ -43,7 +47,7 @@ Generate mzML, mzXML, MGF, and MS2 with pinned ProteoWizard profiles. Every deri
 
 ### Collect data automatically
 
-Run the acquisition agent beside a Windows or Linux instrument computer. It waits for acquisitions to finish, treats vendor directories as a single unit, resumes interrupted uploads, and keeps an offline queue when the server is unavailable.
+Run the acquisition agent beside a Windows or Linux instrument computer. It waits for unchanged files and recognized temporary markers to clear, treats vendor directories as a single unit, resumes interrupted uploads, and keeps an offline queue when the server is unavailable. Inactivity is a completion heuristic, so each instrument's writing behavior needs validation. The [simulated instrument rehearsal](docs/simulated-instruments.md) exercises this boundary with real agent processes and interrupted HTTP transfers.
 
 ### Automate the routine work
 
@@ -51,11 +55,13 @@ Create rules that extract metadata or generate desired formats when a source arr
 
 ### Connect other tools safely
 
-Use the REST API, signed webhooks, or the read-only MCP server to build search, reporting, and assistant workflows without giving those tools direct access to Spectarr's database.
+Use the REST API, signed webhooks, or the read-only MCP server to build search, reporting, and assistant workflows without giving those tools direct access to MassSpec's database.
+
+Find files by their original filenames, managed paths, stable IDs, or SHA-256 checksums. Agents can discover projects, page through scoped searches, and resolve an artifact to its current server location and download availability. The run's **Files** tab also provides **Locate file** and **Copy server path**. See the [file-discovery contract](docs/agent-file-discovery.md) for container path mapping and directory bundles.
 
 ## One container, no database server
 
-Spectarr runs as one container with SQLite and filesystem storage. The dashboard, API, spectrum reader, metadata extractor, converter, webhook worker, and MCP server are packaged together.
+MassSpec runs as one container with SQLite and filesystem storage. The dashboard, API, spectrum reader, metadata extractor, converter, webhook worker, and MCP server are packaged together.
 
 Your durable data lives in one directory:
 
@@ -69,13 +75,17 @@ data/
     └── library/
 ```
 
-Schedule verified backups to a separate directory under **Settings → Backups**, or use the included online backup tool. See [managed backup setup](docs/backup-integration.md). Restore tests boot the backup as a separate Spectarr instance and verify both the database and artifact storage.
+Schedule verified backups to a separate directory under **Settings → Backups**, or use the included online backup tool. See [managed backup setup](docs/backup-integration.md). Restore tests boot the backup as a separate MassSpec instance and verify both the database and artifact storage.
+
+For faster browsing with experiments on a slower drive, Compose supports separate locations: set `SPECTARR_DATA_DIR` to a local SSD directory for the database and `SPECTARR_STORAGE_DIR` to the experiment storage directory. Project and run listings read database metadata. Opening spectra and downloading files still require access to the experiment drive. For an existing installation, stop the container and migrate the existing data before changing these paths so it reopens the same library.
+
+Overview, Projects, run lists, and run details reuse recent results during navigation while fetching current data in the background. This browser memory cache holds up to 50 pages for up to 60 seconds and clears on edits, account changes, or a browser reload. Project counts and sizes are calculated directly in the database without loading each run and artifact.
 
 See the [reliability and recovery guide](docs/reliability-and-recovery.md) for upload recovery, backup verification, restore isolation, and dependency maintenance.
 
 ## Quick start
 
-Spectarr targets Linux x86-64 and requires Docker. Start the published image with one command:
+MassSpec targets Linux x86-64 and requires Docker. Start the published image with one command:
 
 ```console
 docker run -d --name spectarr --restart unless-stopped -p 127.0.0.1:3280:8000 --mount source=spectarr-data,target=/data --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock ghcr.io/pgarrett-scripps/spectarr:latest
@@ -83,7 +93,7 @@ docker run -d --name spectarr --restart unless-stopped -p 127.0.0.1:3280:8000 --
 
 Open [http://localhost:3280](http://localhost:3280) and create the first administrator account.
 
-Spectarr creates and persists its internal secrets automatically. The named volume keeps the database, files, and secrets across container replacement.
+MassSpec creates and persists its internal secrets automatically. The named volume keeps the database, files, and secrets across container replacement.
 
 For Compose, download the standalone file and start it. No environment file is required:
 
@@ -96,7 +106,7 @@ The optional GitHub release bundle contains backup and restore tools, smoke fixt
 
 ## Supported data
 
-Spectarr understands open formats directly and uses vendor readers or ProteoWizard where appropriate.
+MassSpec understands open formats directly and uses vendor readers or ProteoWizard where appropriate.
 
 | Data | Import | Metadata and spectra | Conversion |
 | --- | --- | --- | --- |
@@ -112,7 +122,7 @@ Real-file acceptance currently covers Thermo RAW, a large vendor RAW fallback, a
 
 ## A readable library for existing tools
 
-Spectarr keeps content-addressed source objects for integrity and a separate human-readable view for people and analysis software:
+MassSpec keeps content-addressed source objects for integrity and a separate human-readable view for people and analysis software:
 
 ```text
 library/
@@ -144,9 +154,9 @@ On one filesystem, the readable files are hard links and do not consume duplicat
 
 ## Project status
 
-Spectarr is preparing its first public release. The release candidate passes the complete single-container rehearsal, including concurrent ingestion, forced restart recovery, conversion, spectrum reads, MCP initialization, signed webhook delivery, browser interaction, backup, and independent restore boot.
+MassSpec is preparing its first public release. The release candidate passes the complete single-container rehearsal, including concurrent ingestion, forced restart recovery, conversion, spectrum reads, MCP initialization, signed webhook delivery, browser interaction, backup, and independent restore boot.
 
-The most useful feedback now is from core facilities and research groups willing to try Spectarr with real acquisition patterns and vendor files. Please use [GitHub Issues](https://github.com/pgarrett-scripps/spectarr/issues) for bugs, workflow gaps, and format compatibility reports. Security concerns should follow [SECURITY.md](SECURITY.md).
+The most useful feedback now is from core facilities and research groups willing to try MassSpec with real acquisition patterns and vendor files. Please use [GitHub Issues](https://github.com/pgarrett-scripps/spectarr/issues) for bugs, workflow gaps, and format compatibility reports. Security concerns should follow [SECURITY.md](SECURITY.md).
 
 <details>
 <summary><strong>Architecture and development notes</strong></summary>
@@ -156,7 +166,7 @@ The most useful feedback now is from core facilities and research groups willing
 ```text
 Instrument folders -> Acquisition agent -> Resumable upload API
                                              |
-Dashboard + REST + MCP -> Spectarr API -> SQLite + artifact storage
+Dashboard + REST + MCP -> MassSpec API -> SQLite + artifact storage
                                              |
                          +-------------------+------------------+
                          |                                      |
@@ -170,7 +180,7 @@ The single container supervises the API, dashboard, converter, extractor, webhoo
 
 ### Source development
 
-Source builds use the sibling `msconvert-cli`, `mzmlpy`, and `spxtacular` repositories pinned in `DEPENDENCIES.env`. With those checkouts beside Spectarr:
+Source builds use the sibling `msconvert-cli`, `mzmlpy`, and `spxtacular` repositories pinned in `DEPENDENCIES.env`. With those checkouts beside MassSpec:
 
 ```bash
 make up
@@ -201,4 +211,8 @@ The current suite covers the API, migrations, dashboard, converter, metadata ext
 
 ## License
 
-Spectarr is available under the [Apache License 2.0](LICENSE).
+MassSpec is available under the [Apache License 2.0](LICENSE).
+
+Read-only archive cataloging is available through the project’s **External files** tab. See the [local external inventory guide](docs/external-inventory.md).
+
+Dependency updates and the local security review are recorded in [the hardening report](docs/security-hardening-2026-09-25.md).

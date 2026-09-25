@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import unittest
-from urllib import error
+from urllib import error, request
+from unittest.mock import MagicMock, patch
+from http.client import BadStatusLine
 
 from spectarr_webhooks.api import ClaimedDelivery
 from spectarr_webhooks.delivery import (
     WebhookSender,
+    open_pinned,
     classify_status,
     signature_header,
     validate_destination,
@@ -52,6 +55,33 @@ def public_resolver(*args, **kwargs):
 
 
 class DeliveryTests(unittest.TestCase):
+    def test_malformed_http_response_is_retryable(self):
+        with patch('spectarr_webhooks.delivery.open_pinned', side_effect=BadStatusLine('invalid')):
+            outcome = WebhookSender(resolver=public_resolver).send(claim(), 1)
+        self.assertEqual(outcome.status, 'retry')
+
+    def test_transport_uses_checked_ip_and_original_tls_hostname(self):
+        connection = MagicMock()
+        response = connection.getresponse.return_value.__enter__.return_value
+        checked_socket = MagicMock()
+        with patch('spectarr_webhooks.delivery.HTTPSConnection', return_value=connection), patch('spectarr_webhooks.delivery.socket.create_connection', return_value=checked_socket) as connect, patch('spectarr_webhooks.delivery.ssl.create_default_context') as context:
+            outbound = request.Request('https://receiver.example/hooks?x=1', data=b'{}', method='POST')
+            with open_pinned(outbound, ('8.8.8.8',), 3) as result:
+                self.assertIs(result, response)
+            connect.assert_called_once_with(('8.8.8.8', 443), timeout=3)
+            context.return_value.wrap_socket.assert_called_once_with(checked_socket, server_hostname='receiver.example')
+            connection.request.assert_called_once_with('POST', '/hooks?x=1', body=b'{}', headers={})
+            connection.close.assert_called_once()
+
+    def test_dns_is_resolved_once_and_checked_addresses_reach_transport(self):
+        resolver = MagicMock(side_effect=[public_resolver(), [(2, 1, 6, '', ('127.0.0.1', 443))]])
+        with patch('spectarr_webhooks.delivery.open_pinned') as transport:
+            transport.return_value.__enter__.return_value = FakeResponse(204)
+            outcome = WebhookSender(resolver=resolver).send(claim(), 1)
+            self.assertEqual(outcome.status, 'delivered')
+            resolver.assert_called_once()
+            self.assertEqual(transport.call_args.args[1], ('8.8.8.8',))
+
     def test_signature_covers_timestamp_dot_and_exact_body(self) -> None:
         body = b'{ "a": 1 }'
         expected = hmac.new(b"whsec_secret", b"1700000000." + body, hashlib.sha256).hexdigest()

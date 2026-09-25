@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-from logging.handlers import RotatingFileHandler
 import sys
 import threading
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import __version__
 from .api import SpectarrAgentApi
-from .config import AgentConfig
-from .config import load_config
+from .config import AgentConfig, load_config
 from .service import AcquisitionAgent
 from .state import AgentState
 
@@ -23,6 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, help="TOML configuration file")
     parser.add_argument("--watch", action="append", default=None, help="File or directory to watch, repeatable")
     parser.add_argument("--server-url")
+    parser.add_argument("--mode", choices=("upload", "catalog"))
+    parser.add_argument("--completion-policy", choices=("stability", "published_marker"))
     parser.add_argument("--api-key", help="Bootstrap admin key used only for first registration")
     parser.add_argument("--agent-id", help="Pre-enrolled agent ID from the Spectarr dashboard")
     parser.add_argument("--agent-token", help="Pre-enrolled agent token from the Spectarr dashboard")
@@ -96,6 +97,8 @@ def main() -> int:
     overrides = {
         "watch_paths": args.watch,
         "server_url": args.server_url,
+        "mode": args.mode,
+        "completion_policy": args.completion_policy,
         "api_key": args.api_key,
         "agent_id": args.agent_id,
         "agent_token": args.agent_token,

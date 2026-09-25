@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { Processing } from './Processing'
 
+vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: { role: 'admin' } }) }))
+
 vi.mock('../api/client', () => ({
   api: {
     jobs: vi.fn(),

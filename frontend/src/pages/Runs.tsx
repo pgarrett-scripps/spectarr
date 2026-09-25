@@ -14,8 +14,8 @@ import type { Project } from '../types'
 
 export function Runs({ inbox = false }: { inbox?: boolean }) {
   const { projectId = '' } = useParams()
-  const project = useResource<Project | null>(() => projectId ? api.project(projectId) : Promise.resolve(null), null, projectId)
-  const experiments = useResource(() => projectId ? api.experiments(projectId) : Promise.resolve([]), [], projectId)
+  const project = useResource<Project | null>(() => projectId ? api.project(projectId) : Promise.resolve(null), null, projectId, `project:${projectId}`)
+  const experiments = useResource(() => projectId ? api.experiments(projectId) : Promise.resolve([]), [], projectId, `experiments:${projectId}`)
   const auth = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -41,7 +41,8 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
   const resource = useResource<RunPage>(
     () => api.runPage({ ...filters, offset, limit: 50 }),
     { items: [], total: 0, nextOffset: null, experimentCounts: {} },
-    `${filterKey}:${offset}`
+    `${filterKey}:${offset}`,
+    `runs:${filterKey}:${offset}`
   )
 
   useEffect(() => setQuery(searchParams.get('q') ?? ''), [searchParams])
@@ -49,7 +50,7 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
   const visibleRuns = resource.data.items
   const selectedVisible = visibleRuns.filter(run => selected.has(run.id))
   const selectedExperiment = experiments.data.find(experiment => experiment.id === experimentId)
-  const initialLoading = Boolean(projectId && (project.loading || experiments.loading))
+  const initialLoading = Boolean(projectId && ((project.loading && !project.data) || (experiments.loading && experiments.data.length === 0)))
   const hasFilters = Boolean(query.trim() || experimentId)
 
   useEffect(() => {
@@ -98,16 +99,18 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
       const runs = await api.runs(filters)
       const quote = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`
       const rows = [
-        ['Run', 'Project', 'Experiment', 'Sample', 'Instrument', 'Source', 'Bytes', 'Imported'],
-        ...runs.map(run => [run.name, run.projectName, run.experimentName, run.sampleName, run.instrument, run.sourceFormat, run.sizeBytes, run.importedAt])
+        ['Run', 'Project', 'Experiment', 'Sample', 'Instrument', 'Source', 'Bytes', 'Acquired', 'Imported'],
+        ...runs.map(run => [run.name, run.projectName, run.experimentName, run.sampleName, run.instrument, run.sourceFormat, run.sizeBytes, run.acquiredAt ?? '', run.importedAt])
       ]
       const csv = rows.map(row => row.map(quote).join(',')).join('\n')
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = 'spectarr-runs.csv'
+      anchor.download = 'massspec-runs.csv'
+      document.body.append(anchor)
       anchor.click()
-      URL.revokeObjectURL(url)
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     } catch (reason) {
       setExportError(reason instanceof Error ? reason.message : 'Could not export runs')
     } finally {
@@ -126,13 +129,14 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
     {projectId && <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>{project.data?.name ?? 'Project'}</span></nav>}
     <PageHeader title={title} description={description} actions={<>
       {auth.user?.role === 'admin' && projectId && <button className="button button-secondary" onClick={() => setManagingExperiments(true)}><ListTree size={16} /> Manage experiments</button>}
-      {canProcess && projectId && <button className="button button-primary" onClick={() => setProcessing({ projectId })}><FlaskConical size={16} /> Process project</button>}
+      {canProcess && projectId && <button className="button button-secondary" onClick={() => setProcessing({ projectId })}><FlaskConical size={16} /> Process project</button>}
       {!inbox && visibleRuns.length > 0 && <button className="button button-secondary" disabled={exporting} onClick={() => void exportCsv()}><Download size={16} /> {exporting ? 'Exporting' : 'Export CSV'}</button>}
       {!inbox && canMove && <Link className="button button-primary" to={importRunPath(projectId || undefined)}><Plus size={16} /> Import run</Link>}
     </>} />
     {projectId && <nav className="section-tabs" aria-label="Project sections">
       <NavLink to={projectRunsPath(projectId)} className={({ isActive }) => isActive ? 'active' : ''}>Runs</NavLink>
       <NavLink to={`/projects/${projectId}/metadata`} className={({ isActive }) => isActive ? 'active' : ''}>Metadata and SDRF</NavLink>
+      <NavLink to={`/projects/${projectId}/external`}>External files</NavLink>
     </nav>}
     {exportError && <ApiErrorBanner message={exportError} onRetry={() => void exportCsv()} />}
     {resource.error && <ApiErrorBanner message={resource.error} onRetry={resource.refresh} />}
@@ -147,24 +151,24 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
 
     <Panel className="table-panel">
       <div className="table-toolbar">
-        <div className="table-search"><Search size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter runs..." aria-label="Filter runs" /></div>
+        <div className="table-search"><Search size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter by name, filename, or checksum" aria-label="Filter runs" /></div>
         {selectedExperiment && <button className="button button-secondary" onClick={() => chooseExperiment('')}>Clear {selectedExperiment.name}</button>}
         {canProcess && selectedVisible.length > 0 && <button className="button button-primary" onClick={() => setProcessing({ runIds: selectedVisible.map(run => run.id) })}><FlaskConical size={15} /> Process selected ({selectedVisible.length})</button>}
-        {canMove && selectedVisible.length > 0 && <button className="button button-primary" onClick={() => setMoving(selectedVisible.map(run => run.id))}><FolderInput size={15} /> Move selected ({selectedVisible.length})</button>}
+        {canMove && selectedVisible.length > 0 && <button className="button button-secondary" onClick={() => setMoving(selectedVisible.map(run => run.id))}><FolderInput size={15} /> Move selected ({selectedVisible.length})</button>}
       </div>
-      {resource.loading ? <LoadingState label="Loading runs" /> : visibleRuns.length === 0 ? inbox
+      {resource.loading && visibleRuns.length === 0 ? <LoadingState label="Loading runs" /> : visibleRuns.length === 0 ? inbox
         ? <EmptyState title="Inbox is clear" description="New automatic instrument uploads awaiting assignment will appear here." />
         : <EmptyState title="No runs found" description={hasFilters ? 'No runs match the current search and experiment filters.' : canMove ? 'Import an instrument acquisition to add the first run.' : 'No runs are available to view yet.'} action={hasFilters ? 'Clear filters' : 'Import run'} onAction={hasFilters ? clearFilters : canMove ? () => navigate(importRunPath(projectId || undefined)) : undefined} />
         : <div className="table-scroll"><table>
-          <thead><tr>{canMove && <th className="select-column"><input type="checkbox" name="selectAllRuns" aria-label="Select all visible runs" checked={selectedVisible.length === visibleRuns.length && visibleRuns.length > 0} onChange={() => setSelected(selectedVisible.length === visibleRuns.length ? new Set() : new Set(visibleRuns.map(run => run.id)))} /></th>}<th>Run</th><th>Status</th><th>{projectId ? 'Experiment' : 'Project'}</th><th>Instrument</th><th>Source</th><th>Size</th><th>Imported</th><th /></tr></thead>
+          <thead><tr>{canMove && <th className="select-column"><input type="checkbox" name="selectAllRuns" aria-label="Select all visible runs" checked={selectedVisible.length === visibleRuns.length && visibleRuns.length > 0} onChange={() => setSelected(selectedVisible.length === visibleRuns.length ? new Set() : new Set(visibleRuns.map(run => run.id)))} /></th>}<th>Run</th><th>Status</th><th>{projectId ? 'Experiment' : 'Project'}</th><th>Instrument</th><th>Source</th><th className="numeric-cell">Data</th><th>Imported</th><th /></tr></thead>
           <tbody>{visibleRuns.map(run => <tr key={run.id}>
             {canMove && <td className="select-column"><input type="checkbox" aria-label={`Select ${run.name}`} checked={selected.has(run.id)} onChange={() => toggle(run.id)} /></td>}
-            <td><Link className="primary-cell" to={runPath(run)}><span className="file-glyph file-glyph-small">{run.sourceFormat}</span><span><strong>{run.name}</strong><small>{run.sampleName}</small></span></Link></td>
+            <td><Link className="primary-cell" to={runPath(run)}><span><strong>{run.name}</strong><small>{run.sampleName}</small></span></Link></td>
             <td><RunStatusBadge status={run.status} /></td>
             <td><span>{projectId ? run.experimentName : run.projectName}</span>{run.assignmentStatus === 'needs_assignment' && <small className="assignment-note">Needs assignment</small>}</td>
             <td className="muted-cell">{run.instrument}</td>
             <td><span className="format-chip">{run.sourceFormat}</span></td>
-            <td>{formatBytes(run.sizeBytes)}</td>
+            <td className="numeric-cell">{formatBytes(run.sizeBytes)}</td>
             <td className="muted-cell">{formatRelativeDate(run.importedAt)}</td>
             <td><div className="row-actions">{canMove && <button className="icon-button" aria-label={`Move ${run.name}`} onClick={() => setMoving([run.id])}><FolderInput size={16} /></button>}<Link className="row-link" to={runPath(run)} aria-label={`Open ${run.name}`}><ChevronRight size={17} /></Link></div></td>
           </tr>)}</tbody>

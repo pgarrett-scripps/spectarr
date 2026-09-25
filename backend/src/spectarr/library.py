@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import copy
+import json
+import logging
+import os
 import re
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .models import Artifact, ArtifactRole, ArtifactState, Project, Run
 from .storage import LocalArtifactStorage
+from .library_publication import LibraryPublication, sync_directory
+from .run_summary import run_metadata, select_run_extraction, summary_basis
 
 
 LIBRARY_SCHEMA = "spectarr.library/v2"
@@ -78,8 +84,9 @@ def safe_component(value: str, *, slug: bool = False, maximum: int = 240) -> str
 
 
 def original_extension(filename: str) -> str:
-    if filename.casefold().endswith(".mzml.gz"):
-        return filename[-8:]
+    for suffix in (".mzml.gz", ".mgf.gz", ".ms2.gz", ".msp.gz"):
+        if filename.casefold().endswith(suffix):
+            return filename[-len(suffix):]
     return Path(filename).suffix
 
 
@@ -137,7 +144,6 @@ class LibraryMaterializer:
 
     def artifact_filename(self, artifact: Artifact) -> str:
         run = artifact.run
-        acquired = run.acquired_at or run.created_at
         linked_samples = [link.sample for link in run.sample_links]
         primary_sample = linked_samples[0] if linked_samples else run.sample
         values = {
@@ -151,7 +157,8 @@ class LibraryMaterializer:
             "run_id": run.id.replace("-", ""),
             "artifact_id": artifact.id.replace("-", ""),
             "instrument_name": run.instrument.name if run.instrument else "unknown-instrument",
-            "acquired_date": acquired.date().isoformat(),
+            "acquired_date": run.acquired_at.date().isoformat() if run.acquired_at else "unknown",
+            "imported_date": run.created_at.date().isoformat(),
             "original_filename": artifact.original_filename,
             "original_stem": original_stem(artifact.original_filename),
             "extension": original_extension(artifact.original_filename),
@@ -256,6 +263,7 @@ class LibraryMaterializer:
                     "link_metadata": {},
                 }
             ]
+        extraction, reason = select_run_extraction(run)
         payload = {
             "schema": LIBRARY_SCHEMA,
             "generated_at": isoformat(datetime.now(timezone.utc)),
@@ -271,7 +279,8 @@ class LibraryMaterializer:
                 "source_class": enum_value(run.source_class),
                 "acquired_at": isoformat(run.acquired_at),
                 "created_at": isoformat(run.created_at),
-                "metadata": run.metadata_json,
+                "metadata": run_metadata(run, extraction),
+                "summary_basis": summary_basis(extraction, reason),
             },
             "sample": (
                 sample_links[0]
@@ -389,32 +398,104 @@ class LibraryMaterializer:
         return self.storage.write_library_json("spectarr-library.json", payload)
 
     def rebuild(self, session: Session) -> dict[str, int]:
+        """Stage and publish the library, committing the supplied transaction.
+
+        The caller must hold the exclusive maintenance lock.
+        """
         artifacts = list(
             session.scalars(
                 select(Artifact)
-                .where(Artifact.state == ArtifactState.READY)
+                .where(or_(Artifact.state == ArtifactState.READY, Artifact.library_path.is_not(None)))
                 .order_by(Artifact.created_at, Artifact.id)
             )
         )
-        self.storage.clear_library()
+        # A readable hard link may be the last surviving copy of a missing object.
+        # Validate every input before removing any part of the current library.
         for artifact in artifacts:
-            artifact.library_path = None
-            artifact.materialization_mode = None
-        session.flush()
-        copied = 0
-        linked = 0
-        for artifact in artifacts:
-            self.materialize_artifact(artifact, update_manifests=False)
-            if artifact.materialization_mode == "copy":
-                copied += 1
+            source = self.storage.resolve(artifact.storage_key)
+            if artifact.bundle_manifest is None:
+                available = source.is_file()
             else:
-                linked += 1
+                payload = (source / "payload").resolve()
+                bundle = (payload / artifact.original_filename).resolve()
+                available = bundle.is_relative_to(payload) and bundle.is_dir()
+                if available:
+                    for entry in artifact.bundle_manifest.get("files", []):
+                        member = (bundle / entry["path"]).resolve()
+                        if not member.is_relative_to(bundle) or not member.is_file():
+                            available = False
+                            break
+            if not available:
+                raise FileNotFoundError(f"Artifact {artifact.id} is missing from object storage. Existing library preserved")
+        publication = LibraryPublication(self.storage)
+        try:
+            token, stage = publication.begin()
+            staged_storage = copy.copy(self.storage)
+            staged_storage.library = stage
+            materializer = LibraryMaterializer(staged_storage)
+            for artifact in artifacts:
+                artifact.library_path = None
+                artifact.materialization_mode = None
+            session.flush()
+            counts = {"artifacts": len(artifacts), "hardlinked": 0, "copied": 0}
+            for artifact in artifacts:
+                materializer.materialize_artifact(artifact, update_manifests=False)
+                counts["copied" if artifact.materialization_mode == "copy" else "hardlinked"] += 1
+            for run in session.scalars(select(Run).order_by(Run.id)):
+                materializer.write_run_manifest(run)
+            for project in session.scalars(select(Project).order_by(Project.name, Project.id)):
+                materializer.write_project_manifest(project)
+            materializer.write_catalog(session)
+            (stage / ".spectarr-generation").write_text(token)
+            # Persist copied bytes and directory entries before publishing them.
+            for directory, _, files in os.walk(stage, topdown=False):
+                for name in files:
+                    with (Path(directory) / name).open("rb") as handle:
+                        os.fsync(handle.fileno())
+                sync_directory(Path(directory))
+            publication.commit(session, token, counts)
+        except Exception:
+            session.rollback()
+            publication.recover(session)
+            raise
+        try:
+            publication.recover(session)
+        except OSError:
+            # A committed view is usable even if old-directory cleanup must be
+            # retried by the next request or after restart.
+            logging.getLogger(__name__).exception("Library committed. Cleanup remains pending")
+        return counts
+
+    def refresh_run_summaries(self, session: Session) -> int:
+        """Refresh manifest observations without moving files or rewriting paths.
+
+        Run before workers start, with the exclusive maintenance lock held.
+        Comparing content makes interrupted upgrades safe to resume.
+        """
+        refreshed = 0
         for run in session.scalars(select(Run).order_by(Run.id)):
-            self.write_run_manifest(run)
-        for project in session.scalars(select(Project).order_by(Project.name, Project.id)):
-            self.write_project_manifest(project)
-        self.write_catalog(session)
-        return {"artifacts": len(artifacts), "hardlinked": linked, "copied": copied}
+            key = self.run_manifest_key(run)
+            path = self.storage.resolve_library(key)
+            if not path.is_file():
+                continue
+            payload = json.loads(path.read_text())
+            recorded = payload.get("run", {})
+            if recorded.get("id") != run.id:
+                raise ValueError(f"Manifest identity does not match run {run.id}")
+            result, reason = select_run_extraction(run)
+            corrected = {
+                **recorded,
+                "metadata": run_metadata(run, result),
+                "summary_basis": summary_basis(result, reason),
+                "acquired_at": isoformat(run.acquired_at),
+            }
+            if corrected != recorded:
+                payload["run"] = corrected
+                payload["generated_at"] = isoformat(datetime.now(timezone.utc))
+                self.storage.write_library_json(key, payload)
+                refreshed += 1
+        return refreshed
+
 
 
 def enum_value(value: object) -> str:

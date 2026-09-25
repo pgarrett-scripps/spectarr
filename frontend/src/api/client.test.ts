@@ -2,6 +2,28 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, clearAccessToken, downloadArtifact, getAccessToken, request, setAccessToken } from './client'
 
 describe('API client', () => {
+  it('keeps acquisition time unknown, preserves zero observations, and exposes their provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      runs: [{ id: 'r', acquiredAt: null, importedAt: '2026-09-24T12:00:00Z', created_at: '2026-09-24T12:00:00Z',
+        spectraCount: 0, ms2Count: 0, durationMinutes: 0,
+        latest_extraction: { id: 'e', artifact_id: 'a', artifact_name: 'converted.mzML', selection_reason: 'linked_open_format_fallback',
+          payload: { qc_summary: { spectrum_count: 0, spectra_by_ms_level: { '2': 0 }, acquisition_duration_seconds: 0 } } }
+      }]
+    }), { status: 200 })))
+    const run = (await api.overview()).runs[0]
+    expect(run.acquiredAt).toBeUndefined()
+    expect(run.importedAt).toBe('2026-09-24T12:00:00Z')
+    expect(run).toMatchObject({ spectraCount: 0, ms2Count: 0, durationMinutes: 0 })
+    expect(run.extraction).toMatchObject({ artifactId: 'a', artifactName: 'converted.mzML', selectionReason: 'linked_open_format_fallback', spectrumCount: 0, ms2Count: 0, durationMinutes: 0 })
+  })
+
+  it('does not fill explicitly unknown counts from stale metadata', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      runs: [{ id: 'r', spectraCount: null, ms2Count: null, durationMinutes: null, metadata_json: { spectra_count: 40, ms2_count: 40, duration_minutes: 10 } }]
+    }), { status: 200 })))
+    expect((await api.overview()).runs[0]).toMatchObject({ spectraCount: undefined, ms2Count: undefined, durationMinutes: undefined })
+  })
+
   afterEach(() => {
     clearAccessToken()
     vi.restoreAllMocks()
@@ -304,4 +326,43 @@ describe('complete library pagination', () => {
     expect(projects).toHaveLength(101)
     expect(projects[100].id).toBe('project-100')
   })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  clearAccessToken()
+})
+
+it('formats structured validation errors into readable field messages', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
+    { loc: ['body', 'name'], msg: 'String should have at least 1 character' }
+  ] }), { status: 422 })))
+  await expect(request('/projects')).rejects.toThrow('name: String should have at least 1 character')
+})
+
+it('expires authenticated SDRF downloads consistently', async () => {
+  setAccessToken('expired-export')
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: 'Session expired' }), { status: 401 })))
+  await expect(api.downloadProjectSdrf('project')).rejects.toThrow('Session expired')
+  expect(getAccessToken()).toBeNull()
+})
+
+it('does not erase a newer login when an older request returns unauthorized', async () => {
+  setAccessToken('old-session')
+  let respond: (value: Response) => void = () => undefined
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { respond = resolve })))
+  const pending = request('/projects')
+  setAccessToken('new-session')
+  respond(new Response('{}', { status: 401 }))
+  await expect(pending).rejects.toThrow('401')
+  expect(getAccessToken()).toBe('new-session')
+  clearAccessToken()
+})
+
+it('cancels queued jobs through the guarded endpoint and preserves cancelled status', async () => {
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ id: 'job', state: 'cancelled', kind: 'convert' })))
+  vi.stubGlobal('fetch', fetchMock)
+  await api.cancelQueuedJob('job')
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/jobs/job/cancel', expect.objectContaining({ method: 'POST' }))
+  expect((await api.job('job')).status).toBe('cancelled')
 })

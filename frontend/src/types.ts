@@ -48,11 +48,13 @@ export interface ChromatogramPoint {
 }
 
 export interface SpxtacularPrecursor {
-  mz: number
+  precursor_mz?: number
+  mz?: number
+  im_type?: string | null
   intensity: number
   charge: number | null
   im: number | null
-  iso_score: number | null
+  iso_score?: number | null
   is_monoisotopic: boolean | null
 }
 
@@ -78,12 +80,13 @@ export interface SpxtacularSpectrumMetadata {
   activation_type?: string | null
   precursors?: SpxtacularPrecursor[] | null
   isolation_mz_range?: [number, number] | null
+  isolation_ook0_range?: [number, number] | null
   isolation_im_range?: [number, number] | null
 }
 
 export interface SpxtacularSpectrum {
   schema: 'spxtacular.spectrum'
-  schema_version: 1
+  schema_version: 1 | 2
   kind: 'spectrum' | 'msn_spectrum'
   arrays: {
     mz: number[]
@@ -161,6 +164,9 @@ export interface SpectrumQueryRequest {
 }
 
 export interface ExtractionSummary {
+  artifactId?: string
+  artifactName?: string
+  selectionReason?: string
   id: string
   status: 'queued' | 'running' | 'succeeded' | 'failed'
   extractor: string
@@ -428,6 +434,22 @@ export interface Artifact {
   status: 'verified' | 'generating' | 'failed' | 'purged'
   libraryPath?: string
   materializationMode?: 'hardlink' | 'copy'
+  isDirectory?: boolean
+}
+
+export interface ArtifactAccess {
+  artifact_id: string
+  availability: 'available' | 'unmaterialized' | 'missing' | 'purged' | 'not_ready'
+  is_directory: boolean
+  checked_at: string
+  path_scope: 'api_server'
+  library_root: string
+  library_relative_path: string | null
+  server_path: string | null
+  download_url: string | null
+  sha256: string
+  integrity: 'checksum_recorded_not_reverified'
+  usage_note: string
 }
 
 export interface Run {
@@ -439,7 +461,7 @@ export interface Run {
   experimentName: string
   sampleName: string
   instrument: string
-  acquiredAt: string
+  acquiredAt?: string
   importedAt: string
   status: RunStatus
   sourceFormat: ArtifactFormat
@@ -448,16 +470,19 @@ export interface Run {
   ms2Count?: number
   durationMinutes?: number
   extraction?: ExtractionSummary
+  processingJobs?: Job[]
   metadata: Record<string, unknown>
   artifacts: Artifact[]
   assignmentStatus: 'needs_assignment' | 'assigned'
 }
 
 export interface Job {
+  inputArtifactId?: string
+  outputFormat?: string
   id: string
   kind: 'import' | 'ingest' | 'convert' | 'index' | 'verify' | 'extract_metadata' | 'preview'
   runName: string
-  status: 'queued' | 'running' | 'complete' | 'failed'
+  status: 'queued' | 'running' | 'complete' | 'failed' | 'cancelled'
   progress: number
   detail: string
   createdAt: string

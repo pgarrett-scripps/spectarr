@@ -1,0 +1,301 @@
+{
+  "date": "2026-09-25",
+  "status": "passed_with_documented_limitations",
+  "agent_tests": 33,
+  "extractor_tests": 34,
+  "runs": {
+    "portable": {
+      "status": "passed_with_documented_limitations",
+      "scenarios": [
+        {
+          "name": "long unmarked pause characterized without upload",
+          "status": "passed"
+        },
+        {
+          "name": "growing file and lost committed chunk response",
+          "status": "passed",
+          "source_sha256": "ce8f6915bfeb5cdc6539652a972771fad5c72e06084142b31dbfd405b9bb0c6b",
+          "retry_count": 1
+        },
+        {
+          "name": "lock marker, network outage and hard agent restart",
+          "status": "passed",
+          "resumed_offset": 65536,
+          "same_upload_session": true,
+          "source_sha256": "f8ad570c85d18328a96981181a8557c54bab66dc92ea79efc01c56638eff76fb"
+        },
+        {
+          "name": "distinct acquisitions with identical bytes and repeat polling",
+          "status": "passed",
+          "separate_runs": true,
+          "deduplicated_bytes": true
+        },
+        {
+          "name": "server and agent restart preserve run identities",
+          "status": "passed"
+        },
+        {
+          "name": "spectrum extraction and retrieval",
+          "status": "passed",
+          "artifact_id": "09f50a99-ac7d-425b-a4a6-42404285c443",
+          "spectra": 1200
+        },
+        {
+          "name": "spectrum extraction and retrieval",
+          "status": "passed",
+          "artifact_id": "7b8060f8-7bfd-45d9-900e-af1f286b375b",
+          "spectra": 1200
+        },
+        {
+          "name": "automatic upload through conversion and spectrum reading",
+          "status": "passed",
+          "spectra": 1200
+        }
+      ],
+      "limitations": [
+        "An unmarked acquisition paused beyond the stability window is considered ready. This was reproduced in dry-run mode without uploading incomplete data.",
+        "Native vendor directory replay was not run. Supply --bruker to include it."
+      ],
+      "harness_sha256": "ab85a92b6082945ef337f60a4cb35318752b446c2cca1cf630a7bbe30efb29b7",
+      "agent_sources": {
+        "__init__.py": {
+          "bytes": 64,
+          "sha256": "b4d328a2f128583032d5d68b36826bac177810830c2594627d275be43da16353"
+        },
+        "api.py": {
+          "bytes": 8759,
+          "sha256": "0069c2c1f4f3060f6f4218849ebc4eaca2601ef950a360aa987627afd731625d"
+        },
+        "cli.py": {
+          "bytes": 5187,
+          "sha256": "f2d17ff0fd9272d92c6906c403d26b1af0a8c3ef4d3ec2001fe8c17c42242002"
+        },
+        "config.py": {
+          "bytes": 7207,
+          "sha256": "95abc6d123c6c1de2fb13d71321f1de907b95508edc319023421b5d518dd6db3"
+        },
+        "discovery.py": {
+          "bytes": 8487,
+          "sha256": "3c44b647f77fce3274df6912f25fc10bba2b673b6119592f5e8790ceec4eefc7"
+        },
+        "service.py": {
+          "bytes": 8081,
+          "sha256": "88d8456e634b172e185a6b0744bbb7c9d5ab94f48c0b1b429ddba108168ed18a"
+        },
+        "state.py": {
+          "bytes": 17016,
+          "sha256": "3f9126822c3973856042b6c63e53066db424cc5654b45dda8a2c31708fe42bd9"
+        },
+        "uploader.py": {
+          "bytes": 8180,
+          "sha256": "4dfe26629b26bd968c9ed2870d3bab6c6af2361daada029bbac2256ef0de70ab"
+        },
+        "windows_service.py": {
+          "bytes": 4421,
+          "sha256": "20dc719254cada1d729e59350789805fc64e69b978dd78b24dc5a86f88d7de4f"
+        }
+      },
+      "run_count": 3,
+      "fixtures": {},
+      "http_evidence": {
+        "request_count": 36,
+        "injected_faults": [
+          {
+            "method": "PATCH",
+            "path": "/api/v1/upload-sessions/0c7e6c35-eba3-4311-8c95-0ee260cdc322",
+            "status": 204,
+            "offset": "0",
+            "bytes": 65536,
+            "time": 264000.053604978,
+            "fault": "drop"
+          },
+          {
+            "method": "PATCH",
+            "path": "/api/v1/upload-sessions/5b949def-f9c6-40ea-abeb-9f45bd067806",
+            "status": 204,
+            "offset": "0",
+            "bytes": 65536,
+            "time": 264006.844507973,
+            "fault": "hold"
+          }
+        ]
+      },
+      "image": "sha256:911a4309bb18882456066599cf5d15718043452d07977bda7ea6b54af384c511"
+    },
+    "vendor": {
+      "status": "passed_with_documented_limitations",
+      "scenarios": [
+        {
+          "name": "long unmarked pause characterized without upload",
+          "status": "passed"
+        },
+        {
+          "name": "growing file and lost committed chunk response",
+          "status": "passed",
+          "source_sha256": "ce8f6915bfeb5cdc6539652a972771fad5c72e06084142b31dbfd405b9bb0c6b",
+          "retry_count": 1
+        },
+        {
+          "name": "lock marker, network outage and hard agent restart",
+          "status": "passed",
+          "resumed_offset": 65536,
+          "same_upload_session": true,
+          "source_sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b"
+        },
+        {
+          "name": "distinct acquisitions with identical bytes and repeat polling",
+          "status": "passed",
+          "separate_runs": true,
+          "deduplicated_bytes": true
+        },
+        {
+          "name": "native directory with late members and long paused writes",
+          "status": "passed",
+          "member_count": 2,
+          "bundle_sha256": "b8a4485766044e3546127203d17f1003e9e63753852b2d928fb98fbd8b9024c5"
+        },
+        {
+          "name": "server and agent restart preserve run identities",
+          "status": "passed"
+        },
+        {
+          "name": "spectrum extraction and retrieval",
+          "status": "passed",
+          "artifact_id": "144c8e26-52d7-4b89-825f-e11ff730c099",
+          "spectra": 1200
+        },
+        {
+          "name": "spectrum extraction and retrieval",
+          "status": "passed",
+          "artifact_id": "0454e15d-8924-448c-8ae4-32baa0feaa57",
+          "spectra": 10
+        },
+        {
+          "name": "spectrum extraction and retrieval",
+          "status": "passed",
+          "artifact_id": "27d2eab8-16cc-42d5-8e04-59f4a0ea26b2",
+          "spectra": 4698
+        },
+        {
+          "name": "automatic upload through conversion and spectrum reading",
+          "status": "passed",
+          "spectra": 1200
+        }
+      ],
+      "limitations": [
+        "An unmarked acquisition paused beyond the stability window is considered ready. This was reproduced in dry-run mode without uploading incomplete data."
+      ],
+      "harness_sha256": "ab85a92b6082945ef337f60a4cb35318752b446c2cca1cf630a7bbe30efb29b7",
+      "agent_sources": {
+        "__init__.py": {
+          "bytes": 64,
+          "sha256": "b4d328a2f128583032d5d68b36826bac177810830c2594627d275be43da16353"
+        },
+        "api.py": {
+          "bytes": 8759,
+          "sha256": "0069c2c1f4f3060f6f4218849ebc4eaca2601ef950a360aa987627afd731625d"
+        },
+        "cli.py": {
+          "bytes": 5187,
+          "sha256": "f2d17ff0fd9272d92c6906c403d26b1af0a8c3ef4d3ec2001fe8c17c42242002"
+        },
+        "config.py": {
+          "bytes": 7207,
+          "sha256": "95abc6d123c6c1de2fb13d71321f1de907b95508edc319023421b5d518dd6db3"
+        },
+        "discovery.py": {
+          "bytes": 8487,
+          "sha256": "3c44b647f77fce3274df6912f25fc10bba2b673b6119592f5e8790ceec4eefc7"
+        },
+        "service.py": {
+          "bytes": 8081,
+          "sha256": "88d8456e634b172e185a6b0744bbb7c9d5ab94f48c0b1b429ddba108168ed18a"
+        },
+        "state.py": {
+          "bytes": 17016,
+          "sha256": "3f9126822c3973856042b6c63e53066db424cc5654b45dda8a2c31708fe42bd9"
+        },
+        "uploader.py": {
+          "bytes": 8180,
+          "sha256": "4dfe26629b26bd968c9ed2870d3bab6c6af2361daada029bbac2256ef0de70ab"
+        },
+        "windows_service.py": {
+          "bytes": 4421,
+          "sha256": "20dc719254cada1d729e59350789805fc64e69b978dd78b24dc5a86f88d7de4f"
+        }
+      },
+      "run_count": 4,
+      "fixtures": {
+        "thermo": {
+          "angiotensin.raw": {
+            "bytes": 419028,
+            "sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b"
+          }
+        },
+        "bruker": {
+          "analysis.tdf": {
+            "bytes": 1499136,
+            "sha256": "417878100007967f1eb15e82f2a272f66734dc4308253aa8de87f0d1963480b1"
+          },
+          "analysis.tdf_bin": {
+            "bytes": 60633089,
+            "sha256": "12ef8459c7bd3ce3bab02928b061ce878213c0b7ff23691739168b536cabb439"
+          }
+        }
+      },
+      "http_evidence": {
+        "request_count": 995,
+        "injected_faults": [
+          {
+            "method": "PATCH",
+            "path": "/api/v1/upload-sessions/3efa96d2-1754-4a12-a686-2cf7ddff3bb6",
+            "status": 204,
+            "offset": "0",
+            "bytes": 65536,
+            "time": 264000.361550984,
+            "fault": "drop"
+          },
+          {
+            "method": "PATCH",
+            "path": "/api/v1/upload-sessions/9d58e8e2-74db-414f-9b5e-77b33ba5ff07",
+            "status": 204,
+            "offset": "0",
+            "bytes": 65536,
+            "time": 264007.126426437,
+            "fault": "hold"
+          }
+        ]
+      },
+      "image": "sha256:911a4309bb18882456066599cf5d15718043452d07977bda7ea6b54af384c511"
+    }
+  },
+  "deployment": {
+    "status": "ok",
+    "runs": 20,
+    "artifacts": 44,
+    "files_verified": 45,
+    "database": "ok",
+    "spectra": [
+      {
+        "format": "vendor_directory",
+        "ms_level": 1,
+        "peaks": 337047,
+        "status": "ok"
+      },
+      {
+        "format": "vendor_directory",
+        "ms_level": 2,
+        "peaks": 131,
+        "status": "ok"
+      },
+      {
+        "format": "RAW",
+        "ms_level": 2,
+        "peaks": 180,
+        "status": "ok"
+      }
+    ],
+    "image": "sha256:911a4309bb18882456066599cf5d15718043452d07977bda7ea6b54af384c511",
+    "deployed_at": "2026-09-25T18:53:09.198524+00:00"
+  }
+}

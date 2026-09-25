@@ -6,7 +6,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from spectarr.library import original_extension, render_template, safe_component
+from spectarr.library import filename_with_artifact_id, original_extension, original_stem, render_template, safe_component
 from spectarr.storage import LocalArtifactStorage
 
 
@@ -117,3 +117,11 @@ def test_library_naming_tokens_support_truncation_and_compound_extensions() -> N
 def test_library_naming_rejects_unknown_tokens() -> None:
     with pytest.raises(ValueError, match="Unknown library naming token"):
         render_template("{not_a_token}", {})
+
+
+@pytest.mark.parametrize("extension", [".mzML.gz", ".mgf.gz", ".MS2.GZ", ".msp.gz"])
+def test_compressed_format_survives_library_renaming_and_collision(extension):
+    filename = "acquisition" + extension
+    assert original_extension(filename) == extension
+    assert original_stem(filename) == "acquisition"
+    assert filename_with_artifact_id(filename, "12345678-90ab") == "acquisition__12345678" + extension

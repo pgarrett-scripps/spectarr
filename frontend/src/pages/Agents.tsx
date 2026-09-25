@@ -13,6 +13,7 @@ export function Agents() {
   const experiments = useResource(() => api.experiments(), [])
   const [creating, setCreating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [updating, setUpdating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [enrollment, setEnrollment] = useState<{ id: string, token: string } | null>(null)
   const [rotatedToken, setRotatedToken] = useState<{ name: string, token: string } | null>(null)
@@ -32,6 +33,7 @@ export function Agents() {
 
   const register = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (submitting) return
     const form = new FormData(event.currentTarget)
     setSubmitting(true)
     setError(null)
@@ -58,7 +60,7 @@ export function Agents() {
 
   const saveConfiguration = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!configuring) return
+    if (submitting || !configuring) return
     if (configurationMode === 'direct' && !configurationSelectedExperimentId) {
       setError('Choose a destination experiment')
       return
@@ -77,27 +79,35 @@ export function Agents() {
   }
 
   const setEnabled = async (agent: InstrumentAgent) => {
+    if (updating) return
     const action = agent.enabled ? 'disable' : 'enable'
     if (!window.confirm(`${action === 'disable' ? 'Disable' : 'Enable'} ${agent.name}?`)) return
     setError(null)
     try {
+      setUpdating(true)
       await api.updateAgentEnabled(agent.id, !agent.enabled)
       resource.refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Could not ${action} the agent`)
+    } finally {
+      setUpdating(false)
     }
   }
 
   const rotateToken = async (agent: InstrumentAgent) => {
+    if (updating) return
     if (!window.confirm(`Rotate the token for ${agent.name}? The current token will stop working immediately.`)) return
     setError(null)
     try {
+      setUpdating(true)
       const result = await api.rotateAgentToken(agent.id)
       setCopied(false)
       setRotatedToken({ name: agent.name, token: result.token })
       resource.refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not rotate the agent token')
+    } finally {
+      setUpdating(false)
     }
   }
 
@@ -123,34 +133,34 @@ export function Agents() {
       <div className="agent-card-head"><span className="storage-large-icon"><RadioTower size={20} /></span><span className={`health health-${agent.status === 'online' ? 'healthy' : agent.status}`}><i />{agent.status}</span></div>
       <h2>{agent.name}</h2><p>{agent.platform} · version {agent.version}</p>
       <dl className="agent-stats"><div><dt>Destination</dt><dd>{destinationLabel(agent, experiments.data, projects.data)}</dd></div><div><dt>Backlog</dt><dd>{agent.backlog} acquisitions</dd></div><div><dt>Last seen</dt><dd>{agent.lastSeenAt ? formatRelativeDate(agent.lastSeenAt) : 'Never'}</dd></div><div><dt>Watch paths</dt><dd>{agent.watchPaths.join(', ') || 'Configured on agent'}</dd></div></dl>
-      <div className="agent-actions"><button className="button button-ghost button-small" onClick={() => openConfiguration(agent)}><Settings2 size={14} /> Destination</button><button className="button button-ghost button-small" onClick={() => void rotateToken(agent)}><KeyRound size={14} /> Rotate token</button><button className="button button-ghost button-small" onClick={() => void setEnabled(agent)}><Power size={14} /> {agent.enabled ? 'Disable' : 'Enable'}</button></div>
+      <div className="agent-actions"><button className="button button-ghost button-small" onClick={() => openConfiguration(agent)}><Settings2 size={14} /> Destination</button><button className="button button-ghost button-small" disabled={updating} onClick={() => void rotateToken(agent)}><KeyRound size={14} /> Rotate token</button><button className="button button-ghost button-small" disabled={updating} onClick={() => void setEnabled(agent)}><Power size={14} /> {agent.enabled ? 'Disable' : 'Enable'}</button></div>
       {agent.lastError && <div className="agent-error"><TriangleAlert size={14} />{agent.lastError}</div>}
     </Panel>)}</div>}
     <Panel title="How ingestion works" subtitle="The agent never modifies active acquisition files">
       <div className="agent-flow"><span><Server />Watch</span><i>→</i><span><Check />Stability check</span><i>→</i><span><RadioTower />Resumable upload</span><i>→</i><span><Check />Verify and extract</span></div>
     </Panel>
     {creating && <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="register-agent-title">
-      <div className="modal-header"><div><h2 id="register-agent-title">Register instrument agent</h2><p>The enrollment token is shown once.</p></div><button className="icon-button" aria-label="Close" onClick={() => setCreating(false)}>×</button></div>
-      {enrollment ? <div className="token-result"><strong>Agent enrollment</strong><p>Configure both values on the acquisition computer. The token is shown only once. Its upload destination is managed in Spectarr.</p><div className="endpoint enrollment-config"><code>{`SPECTARR_AGENT_ID=${enrollment.id}\nSPECTARR_AGENT_TOKEN=${enrollment.token}`}</code><button className="icon-button" aria-label="Copy agent enrollment" onClick={() => {
+      <div className="modal-header"><div><h2 id="register-agent-title">Register instrument agent</h2><p>The enrollment token is shown once.</p></div><button className="icon-button" aria-label="Close" disabled={submitting} onClick={() => setCreating(false)}>×</button></div>
+      {enrollment ? <div className="token-result"><strong>Agent enrollment</strong><p>Configure both values on the acquisition computer. The token is shown only once. Its upload destination is managed in MassSpec.</p><div className="endpoint enrollment-config"><code>{`SPECTARR_AGENT_ID=${enrollment.id}\nSPECTARR_AGENT_TOKEN=${enrollment.token}`}</code><button className="icon-button" aria-label="Copy agent enrollment" onClick={() => {
         setError(null)
         void navigator.clipboard.writeText(`SPECTARR_AGENT_ID=${enrollment.id}\nSPECTARR_AGENT_TOKEN=${enrollment.token}`).then(() => setCopied(true)).catch(reason => setError(reason instanceof Error ? reason.message : 'Could not copy to the clipboard'))
       }}>{copied ? <Check size={15} /> : <Clipboard size={15} />}</button></div>{error && <div className="modal-error" role="alert">{error}</div>}<button className="button button-primary" onClick={() => setCreating(false)}>Done</button></div> : <form onSubmit={event => void register(event)}>
-        <div className="modal-fields"><label><span>Name</span><input name="name" required autoFocus placeholder="Orbitrap acquisition PC" /></label><DestinationFields mode={registrationMode} onMode={setRegistrationMode} projectId={registrationProjectId} onProject={value => {
+        <fieldset className="modal-fields form-fields" disabled={submitting}><label><span>Name</span><input name="name" required autoFocus placeholder="Orbitrap acquisition PC" /></label><DestinationFields mode={registrationMode} onMode={setRegistrationMode} projectId={registrationProjectId} onProject={value => {
           setRegistrationProjectId(value)
           setRegistrationExperimentId('')
-        }} experimentId={registrationExperimentId} onExperiment={setRegistrationExperimentId} projects={scientificProjects} experiments={experiments.data} /></div>
+        }} experimentId={registrationExperimentId} onExperiment={setRegistrationExperimentId} projects={scientificProjects} experiments={experiments.data} /></fieldset>
         {error && <div className="modal-error" role="alert">{error}</div>}
-        <div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setCreating(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={submitting || (registrationMode === 'direct' && !registrationSelectedExperimentId)}>{submitting ? 'Registering' : 'Register agent'}</button></div>
+        <div className="modal-actions"><button type="button" className="button button-secondary" disabled={submitting} onClick={() => setCreating(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={submitting || (registrationMode === 'direct' && !registrationSelectedExperimentId)}>{submitting ? 'Registering' : 'Register agent'}</button></div>
       </form>}
     </section></div>}
     {configuring && <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="configure-agent-title">
-      <div className="modal-header"><div><h2 id="configure-agent-title">Configure {configuring.name}</h2><p>New acquisitions use this destination. Existing runs are unchanged.</p></div><button className="icon-button" aria-label="Close" onClick={() => setConfiguring(null)}>×</button></div>
-      <form onSubmit={event => void saveConfiguration(event)}><div className="modal-fields"><DestinationFields mode={configurationMode} onMode={setConfigurationMode} projectId={configurationProjectId} onProject={value => {
+      <div className="modal-header"><div><h2 id="configure-agent-title">Configure {configuring.name}</h2><p>New acquisitions use this destination. Existing runs are unchanged.</p></div><button className="icon-button" aria-label="Close" disabled={submitting} onClick={() => setConfiguring(null)}>×</button></div>
+      <form onSubmit={event => void saveConfiguration(event)}><fieldset className="modal-fields form-fields" disabled={submitting}><DestinationFields mode={configurationMode} onMode={setConfigurationMode} projectId={configurationProjectId} onProject={value => {
         setConfigurationProjectId(value)
         setConfigurationExperimentId('')
-      }} experimentId={configurationExperimentId} onExperiment={setConfigurationExperimentId} projects={scientificProjects} experiments={experiments.data} /></div>
+      }} experimentId={configurationExperimentId} onExperiment={setConfigurationExperimentId} projects={scientificProjects} experiments={experiments.data} /></fieldset>
       {error && <div className="modal-error" role="alert">{error}</div>}
-      <div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setConfiguring(null)}>Cancel</button><button type="submit" className="button button-primary" disabled={submitting || (configurationMode === 'direct' && !configurationSelectedExperimentId)}>{submitting ? 'Saving' : 'Save destination'}</button></div></form>
+      <div className="modal-actions"><button type="button" className="button button-secondary" disabled={submitting} onClick={() => setConfiguring(null)}>Cancel</button><button type="submit" className="button button-primary" disabled={submitting || (configurationMode === 'direct' && !configurationSelectedExperimentId)}>{submitting ? 'Saving' : 'Save destination'}</button></div></form>
     </section></div>}
     {rotatedToken && <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="rotated-token-title">
       <div className="modal-header"><div><h2 id="rotated-token-title">Token rotated</h2><p>Update {rotatedToken.name}, then restart its Windows service.</p></div><button className="icon-button" aria-label="Close" onClick={() => setRotatedToken(null)}>×</button></div>

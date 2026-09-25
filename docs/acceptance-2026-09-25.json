@@ -1,0 +1,406 @@
+{
+  "date": "2026-09-25",
+  "image": "sha256:55a66bb25d4965c6db735fa41e7e9799755879523594c566a3b3b89fe83c6d87",
+  "status": "passed",
+  "deployment": {
+    "live_updated": false,
+    "reason": "Live replacement requires approval after automatic approval review rejected deployment"
+  },
+  "component_tests": {
+    "backend": 189,
+    "frontend": 127,
+    "services": 139,
+    "total": 455,
+    "backend_coverage_percent": 88.71
+  },
+  "maintenance": {
+    "status": "ok",
+    "maintenance_response": 503,
+    "converter_restarted": false
+  },
+  "restart": {
+    "status": "ok",
+    "concurrent_runs": 24,
+    "database": "ok",
+    "storage": "ok"
+  },
+  "backup_restore": {
+    "status": "ok",
+    "verified_artifact_objects": 13,
+    "snapshot_bytes": 1104343040,
+    "independent_instance_validated": true
+  },
+  "ui": {
+    "desktop": "checked",
+    "mobile_viewport_width": 390,
+    "horizontal_overflow": false,
+    "output_reuse": "checked"
+  },
+  "limitations": [
+    "Fixture acceptance does not establish quantitative equivalence across readers or all vendor formats",
+    "Hosted Linux and Windows release gates have not been run",
+    "No release tag or registry image has been published"
+  ],
+  "vendor": {
+    "cancellation": {
+      "batch_id": "fe87c0da-1d3a-44f6-a042-44ce60f6e818",
+      "cancelled_job_id": "52a16f2b-dcfd-4a73-be13-11c21ab62457",
+      "output_artifact_id": "6223f4ba-d8be-48b2-b221-26892d385a14",
+      "retried_job_id": "52a16f2b-dcfd-4a73-be13-11c21ab62457"
+    },
+    "fixtures": {
+      "bruker": {
+        "extraction": {
+          "provider": "openmassspec",
+          "spectra_count": 4698,
+          "warnings": [
+            "Isolation window details reached the configured storage limit"
+          ]
+        },
+        "path": "/imports/example-dda.d",
+        "run_id": "7c0e5a69-ebdc-4cf1-adcb-3a6e4f1ba2e3",
+        "source_artifact_id": "348a5cd9-3690-4a00-8bc2-ea7671c7a2ac",
+        "source_bytes": 62132225,
+        "source_sha256": "408ac611713b18688e790e46266956d68aa1872f621a1d56fce9bdff48baf9fd"
+      },
+      "large_raw": {
+        "extraction": {
+          "provider": "spectarr-mzml",
+          "spectra_count": 5445,
+          "warnings": [
+            "Isolation window details reached the configured storage limit"
+          ]
+        },
+        "path": "/imports/large-vendor.raw",
+        "run_id": "c98702c7-19a4-4611-a05c-f0a859d4283b",
+        "source_artifact_id": "a4145561-dadf-4404-9a28-b727981b0cd9",
+        "source_bytes": 35488261,
+        "source_sha256": "b8f8fe0986a03388ac582bd8a49812a8ad8d78d3cec70bce01c345774a13e3b0"
+      },
+      "thermo": {
+        "extraction": {
+          "provider": "openmassspec",
+          "spectra_count": 10,
+          "warnings": []
+        },
+        "path": "/imports/angiotensin.raw",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "source_artifact_id": "80d02db9-3ecc-44aa-a518-f23a751e3949",
+        "source_bytes": 419028,
+        "source_sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b"
+      }
+    },
+    "open_source": {
+      "artifact_id": "759d5e47-9cd0-4d49-b45e-724251decdc2",
+      "extraction": {
+        "provider": "spectarr-mzml",
+        "spectra_count": 10,
+        "warnings": []
+      },
+      "run_id": "f7c6bda4-18e5-4f5f-afa4-b5bf97dd2674",
+      "sha256": "3f59462c45c76f9c96a166f9819422af97501eba900f0332c77951eb84a5e75e"
+    },
+    "project_id": "2a066a55-0d6f-4b7a-ba54-13b4db3ec83d",
+    "reclamation": {
+      "preview": {
+        "artifact_count": 1,
+        "blocked_count": 0,
+        "format_counts": {
+          "mgf": 1
+        },
+        "reclaimable_bytes": 45103
+      },
+      "regenerated": {
+        "artifact_id": "2b50656c-c411-4c5d-a2ee-9c64b7a26b9f",
+        "byte_size": 45103,
+        "job_id": "3ba659da-99ea-4d41-acb3-36b0117f1233",
+        "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2"
+      },
+      "result": {
+        "artifact_count": 1,
+        "blocked_count": 0,
+        "format_counts": {
+          "mgf": 1
+        },
+        "reclaimable_bytes": 45103
+      }
+    },
+    "status": "ok",
+    "thermo_outputs": {
+      "MGF": {
+        "artifact_id": "403a0798-d4d1-491a-b1a3-ef259eef88e4",
+        "byte_size": 45103,
+        "job_id": "31a1741c-b73f-48d9-a411-f12268ca143d",
+        "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2"
+      },
+      "MS2": {
+        "artifact_id": "ac133e05-76fd-4869-a9bd-4e8b7a2ffbf1",
+        "byte_size": 378243,
+        "job_id": "0df32c42-0f27-43b2-a5ed-c49b9bdb4ab7",
+        "sha256": "a4a961e4b76788a23bf5233bd25bdd7530f8817d4aed6ae93dcde5c2b7bad080"
+      },
+      "mzML": {
+        "artifact_id": "93ff4146-30ae-4130-82be-9468dce46d37",
+        "byte_size": 227892,
+        "job_id": "7567de2d-ddbb-4995-97e4-e6bf6aacc277",
+        "sha256": "3f59462c45c76f9c96a166f9819422af97501eba900f0332c77951eb84a5e75e"
+      },
+      "mzXML": {
+        "artifact_id": "323cc74f-2779-45e4-af07-35cede8e6e6f",
+        "byte_size": 329563,
+        "job_id": "69720ed1-6f0e-415b-b98f-24affcd145da",
+        "sha256": "ccd125798bc2ebaee059973596edbfe1316c86ece001809bb8c2e01a25a48525"
+      }
+    }
+  },
+  "agent_before_restart": {
+    "status": "ok",
+    "run_count": 4,
+    "artifacts": [
+      {
+        "artifact_id": "759d5e47-9cd0-4d49-b45e-724251decdc2",
+        "run_id": "f7c6bda4-18e5-4f5f-afa4-b5bf97dd2674",
+        "role": "source",
+        "sha256": "3f59462c45c76f9c96a166f9819422af97501eba900f0332c77951eb84a5e75e",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "348a5cd9-3690-4a00-8bc2-ea7671c7a2ac",
+        "run_id": "7c0e5a69-ebdc-4cf1-adcb-3a6e4f1ba2e3",
+        "role": "source",
+        "sha256": "408ac611713b18688e790e46266956d68aa1872f621a1d56fce9bdff48baf9fd",
+        "directory": true,
+        "verified": true
+      },
+      {
+        "artifact_id": "8b101683-de78-4ad4-9bb5-b0bf02186c0e",
+        "run_id": "7c0e5a69-ebdc-4cf1-adcb-3a6e4f1ba2e3",
+        "role": "derived",
+        "sha256": "7f184d705225af4a04283a761b4b094116feeae038b4d7a34374da92ade9942f",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "a4145561-dadf-4404-9a28-b727981b0cd9",
+        "run_id": "c98702c7-19a4-4611-a05c-f0a859d4283b",
+        "role": "source",
+        "sha256": "b8f8fe0986a03388ac582bd8a49812a8ad8d78d3cec70bce01c345774a13e3b0",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "3a2593c2-9713-4c14-a57d-08e3ec3a85d2",
+        "run_id": "c98702c7-19a4-4611-a05c-f0a859d4283b",
+        "role": "derived",
+        "sha256": "02084549a5330adcecda9c654fa26fbf04d63e6b7020ae02cd50bc4c2906bd53",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "6223f4ba-d8be-48b2-b221-26892d385a14",
+        "run_id": "c98702c7-19a4-4611-a05c-f0a859d4283b",
+        "role": "derived",
+        "sha256": "02084549a5330adcecda9c654fa26fbf04d63e6b7020ae02cd50bc4c2906bd53",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "80d02db9-3ecc-44aa-a518-f23a751e3949",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "source",
+        "sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "93ff4146-30ae-4130-82be-9468dce46d37",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "3f59462c45c76f9c96a166f9819422af97501eba900f0332c77951eb84a5e75e",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "323cc74f-2779-45e4-af07-35cede8e6e6f",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "ccd125798bc2ebaee059973596edbfe1316c86ece001809bb8c2e01a25a48525",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "ac133e05-76fd-4869-a9bd-4e8b7a2ffbf1",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "a4a961e4b76788a23bf5233bd25bdd7530f8817d4aed6ae93dcde5c2b7bad080",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "2b50656c-c411-4c5d-a2ee-9c64b7a26b9f",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2",
+        "directory": false,
+        "verified": true
+      }
+    ],
+    "renamed_and_rebuilt": true,
+    "pagination_limit": 1,
+    "duplicate_content_keeps_distinct_runs": true
+  },
+  "agent_after_restart": {
+    "status": "ok",
+    "run_count": 4,
+    "artifacts": [
+      {
+        "artifact_id": "759d5e47-9cd0-4d49-b45e-724251decdc2",
+        "run_id": "f7c6bda4-18e5-4f5f-afa4-b5bf97dd2674",
+        "role": "source",
+        "sha256": "3f59462c45c76f9c96a166f9819422af97501eba900f0332c77951eb84a5e75e",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "348a5cd9-3690-4a00-8bc2-ea7671c7a2ac",
+        "run_id": "7c0e5a69-ebdc-4cf1-adcb-3a6e4f1ba2e3",
+        "role": "source",
+        "sha256": "408ac611713b18688e790e46266956d68aa1872f621a1d56fce9bdff48baf9fd",
+        "directory": true,
+        "verified": true
+      },
+      {
+        "artifact_id": "8b101683-de78-4ad4-9bb5-b0bf02186c0e",
+        "run_id": "7c0e5a69-ebdc-4cf1-adcb-3a6e4f1ba2e3",
+        "role": "derived",
+        "sha256": "7f184d705225af4a04283a761b4b094116feeae038b4d7a34374da92ade9942f",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "a4145561-dadf-4404-9a28-b727981b0cd9",
+        "run_id": "c98702c7-19a4-4611-a05c-f0a859d4283b",
+        "role": "source",
+        "sha256": "b8f8fe0986a03388ac582bd8a49812a8ad8d78d3cec70bce01c345774a13e3b0",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "3a2593c2-9713-4c14-a57d-08e3ec3a85d2",
+        "run_id": "c98702c7-19a4-4611-a05c-f0a859d4283b",
+        "role": "derived",
+        "sha256": "02084549a5330adcecda9c654fa26fbf04d63e6b7020ae02cd50bc4c2906bd53",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "6223f4ba-d8be-48b2-b221-26892d385a14",
+        "run_id": "c98702c7-19a4-4611-a05c-f0a859d4283b",
+        "role": "derived",
+        "sha256": "02084549a5330adcecda9c654fa26fbf04d63e6b7020ae02cd50bc4c2906bd53",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "80d02db9-3ecc-44aa-a518-f23a751e3949",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "source",
+        "sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "93ff4146-30ae-4130-82be-9468dce46d37",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "3f59462c45c76f9c96a166f9819422af97501eba900f0332c77951eb84a5e75e",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "323cc74f-2779-45e4-af07-35cede8e6e6f",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "ccd125798bc2ebaee059973596edbfe1316c86ece001809bb8c2e01a25a48525",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "ac133e05-76fd-4869-a9bd-4e8b7a2ffbf1",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "a4a961e4b76788a23bf5233bd25bdd7530f8817d4aed6ae93dcde5c2b7bad080",
+        "directory": false,
+        "verified": true
+      },
+      {
+        "artifact_id": "2b50656c-c411-4c5d-a2ee-9c64b7a26b9f",
+        "run_id": "f8c4b4e2-651c-4416-8847-212f49b31a67",
+        "role": "derived",
+        "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2",
+        "directory": false,
+        "verified": true
+      }
+    ],
+    "renamed_and_rebuilt": false,
+    "pagination_limit": 1,
+    "duplicate_content_keeps_distinct_runs": true
+  },
+  "scientific": {
+    "status": "ok",
+    "evidence": {
+      "bruker": {
+        "vendor_frames": 710,
+        "source_ms1_frames": 65,
+        "source_pasef_entries": 4633,
+        "source_records": 4698,
+        "converted_spectra": 476410,
+        "note": "Source records match MS1 frames plus PASEF entries. Converted spectra are separate observations.",
+        "xml_ms_levels": {
+          "1": 43615,
+          "2": 432795
+        },
+        "summary_basis": {
+          "policy": "source_then_linked_open_format/v1",
+          "reason": "source",
+          "artifact_id": "348a5cd9-3690-4a00-8bc2-ea7671c7a2ac",
+          "filename": "example-dda.d",
+          "format": "vendor_directory",
+          "role": "source"
+        }
+      },
+      "large_raw": {
+        "run_spectra": 5445,
+        "xml_spectra": 5445,
+        "xml_ms_levels": {
+          "1": 3445,
+          "2": 2000
+        },
+        "summary_basis": {
+          "policy": "source_then_linked_open_format/v1",
+          "reason": "linked_open_format_fallback",
+          "artifact_id": "6223f4ba-d8be-48b2-b221-26892d385a14",
+          "filename": "large-vendor.mzML.gz",
+          "format": "mzML",
+          "role": "derived"
+        }
+      },
+      "thermo": {
+        "run_spectra": 10,
+        "xml_spectra": 10,
+        "xml_ms_levels": {
+          "2": 10
+        },
+        "summary_basis": {
+          "policy": "source_then_linked_open_format/v1",
+          "reason": "source",
+          "artifact_id": "80d02db9-3ecc-44aa-a518-f23a751e3949",
+          "filename": "angiotensin.raw",
+          "format": "RAW",
+          "role": "source"
+        }
+      }
+    }
+  }
+}

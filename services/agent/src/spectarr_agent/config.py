@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+import tomllib
 
 DEFAULT_IGNORE_PATTERNS = (
     "*.tmp",
@@ -67,8 +67,24 @@ class AgentConfig:
     file_suffixes: tuple[str, ...] = field(default_factory=lambda: DEFAULT_FILE_SUFFIXES)
     bundle_suffixes: tuple[str, ...] = field(default_factory=lambda: DEFAULT_BUNDLE_SUFFIXES)
     dry_run: bool = False
+    mode: str = "upload"
+    completion_policy: str = "stability"
+    scan_max_entries: int = 100000
 
-    def validate(self) -> "AgentConfig":
+    def validate(self) -> AgentConfig:
+        if self.mode not in {"upload", "catalog"}:
+            raise ValueError("Mode must be upload or catalog")
+        if self.completion_policy not in {"stability", "published_marker"}:
+            raise ValueError("Completion policy must be stability or published_marker")
+        if self.scan_max_entries < 1:
+            raise ValueError("Scan entry limit must be positive")
+        if self.mode == "catalog":
+            for root in self.watch_paths:
+                absolute = root.expanduser().absolute()
+                if any(p.is_symlink() for p in (absolute, *absolute.parents)):
+                    raise ValueError("Catalog roots cannot contain symbolic links")
+                if any(p.expanduser().resolve().is_relative_to(absolute) for p in [self.state_db, *([self.log_file] if self.log_file else [])]):
+                    raise ValueError("Agent state and logs must be outside catalog roots")
         if not self.server_url.startswith(("http://", "https://")):
             raise ValueError("server_url must use http or https")
         if not self.watch_paths:

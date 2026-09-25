@@ -33,7 +33,7 @@ export function BackupSettings() {
   }
   const data = resource.data
   if (!data) return resource.error ? <ApiErrorBanner message={resource.error} onRetry={resource.refresh} /> : <LoadingState label="Loading backup settings" />
-  const busy = working || activeStates.has(data.status)
+  const busy = working || activeStates.has(data.status) || Boolean(resource.error)
   const canRun = data.destination_available && !busy && !data.restore_mode
   return <>
     {error && <div className="message-banner" role="alert">{error}</div>}

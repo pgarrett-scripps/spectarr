@@ -95,7 +95,8 @@ class SpectrumReaderClient:
             raise SpectrumReaderError(
                 502, "Spectrum reader returned a non-object response"
             )
-        if value.get("schema") != expected_schema or value.get("schema_version") != 1:
+        versions = {1, 2} if expected_schema == "spxtacular.spectrum" else {1}
+        if value.get("schema") != expected_schema or value.get("schema_version") not in versions:
             raise SpectrumReaderError(
                 502, "Spectrum reader returned an unsupported transport schema"
             )

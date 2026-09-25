@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gzip
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 from ..models import ExtractionResult, SpectrumObservation
 
@@ -32,11 +34,19 @@ class ParserProvider(Protocol):
 
 
 def normalized_format(path: Path, declared_format: str | None) -> str:
-    if not declared_format and path.name.lower().endswith(".mzml.gz"):
-        value = "mzml.gz"
-    else:
-        value = declared_format or path.suffix.lstrip(".")
-    if value.lower() == "mzml.gz":
-        return "mzML"
+    suffix_path = Path(path.stem) if path.suffix.lower() == ".gz" else path
+    value = declared_format or suffix_path.suffix.lstrip(".")
+    if value.lower().endswith(".gz"):
+        value = value[:-3]
     names = {"mzml": "mzML", "mzxml": "mzXML", "mgf": "MGF", "ms2": "MS2"}
     return names.get(value.lower(), value)
+
+
+
+def open_text_spectrum(path: Path):
+    """Stream plain or gzip peak lists, including content-addressed objects."""
+    with path.open("rb") as probe:
+        compressed = probe.read(2) == b"\x1f\x8b"
+    if compressed or path.suffix.lower() == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return path.open("rt", encoding="utf-8", errors="replace")

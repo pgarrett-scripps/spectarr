@@ -1,8 +1,52 @@
 # Changelog
 
-All notable changes to Spectarr will be documented in this file. Releases follow Semantic Versioning.
+All notable changes to MassSpec will be documented in this file. Releases follow Semantic Versioning.
 
-## Unreleased
+## 0.4.0 - 2026-09-25
+
+- Migrate Python to 3.14, SQLAlchemy to 2.1, TypeScript to 7, Vitest to 5, Node to 26, and the reader runtime to .NET 10.
+- Pin the September stable ProteoWizard build, verify vendor conversions and read-only discovery, and close SQLite backup connections explicitly.
+
+- Upgrade Spxtacular to 0.9 and mzMLPy to 0.10 with schema 2 support and rapidgzip access.
+- Harden browser request boundaries, webhook DNS handling, converter isolation, XML parsing, and concurrent administrator setup.
+- Refresh dependency locks and container images, remove runtime installer tooling, and pin CI actions to commits.
+
+- Added local external inventory with explicit folder registration, project permissions, coverage-aware scans, content revisions, confirmed relocations, and selected resumable imports
+- Added read-only MCP external search and host-scoped location resolution without changing managed artifact access
+- Added optional producer publication markers and safer source reads, with consistent bundle checksum ordering
+- Added read-only Docker inventory rehearsals and a small local TimSim fixture generator
+
+- Added an isolated simulated instrument rehearsal with real agent processes, resumable HTTP fault injection, native bundle replay and a portable CI gate
+- Thermo RAW and Bruker TDF spectrum viewing uses the extraction reader when available, preserving catalog native IDs, profile or centroid representation, and peak arrays
+- Documented the acquisition completion heuristic and reproduced its unmarked-pause limitation without uploading incomplete data
+
+- Simplified run processing with primary formats, stored output links, live job details, and collapsed completed history
+- Unavailable artifacts are rejected as explicit conversion inputs
+- Idle converter workers retry temporary maintenance responses without restarting the application
+- Real-file release rehearsals now verify reimported mzML, MCP pagination and file resolution, independent scientific counts, project renaming, maintenance, restart, and restore
+- Captured source archives include exact dependency changes and checksums. CI applies the pinned Sage centroiding correction and uses the tested dependency revisions
+
+- Rebranded the workspace as MassSpec with compatible existing configuration and storage identifiers
+- Replaced the wide SDRF grid with searchable entries, focused field groups, and collapsible project details and column management
+
+- Named conversion presets now recognize gzipped outputs and index mzML without adding a duplicate gzip suffix
+- RAW extraction preserves nested OpenMassSpec precursor m/z, charge, isolation windows, collision energy, and activation metadata
+- The integrations page displays and copies a configured public MCP endpoint for custom ports and reverse proxies
+
+- Long dialogs remain scrollable when profile or experiment lists exceed the viewport
+- Activity queued-job cancellation with atomic server state checks, viewer write restrictions, and accurate cancelled status
+- Retry controls for cancelled processing batches and recovery from transient polling failures without discarding unsaved backup settings
+- Extended GUI verification of webhook controls, repository package checksums, derived-file reclamation, populated experiment deletion, navigation, and session expiry
+
+- GUI hardening for dialog keyboard navigation, pending submissions, readable API errors, download session expiry, viewer permissions, and settings navigation
+- SDRF validation and export save current edits, column editing keeps keyboard focus, and repeated imports can retry the same file
+- Processing previews discard stale results, metadata-only automation stays selected, advanced profile filters survive editing, and expanded batches refresh with live progress
+- Dedicated browser regression coverage for imports, spectra, SDRF, processing, settings, accounts, project membership, agent enrollment, storage previews, and experiment deletion
+
+- Public PRIDE dataset lookup and selected acquisition downloads with a persistent server queue, configurable parallel transfers, restart recovery, cancellation, retry, integrity checks, and repository provenance
+- Available PRIDE SDRF preview and import for selected acquisitions, preserving existing annotations and multiplexed sample labels
+- Administrator download concurrency settings that apply without restarting, plus filename search, bulk selection, and progressive file listing for large PRIDE datasets
+- Gzipped MGF and MS2 metadata extraction now streams compressed input and detects gzip content in immutable objects
 
 ## 0.3.0 - 2026-09-04
 

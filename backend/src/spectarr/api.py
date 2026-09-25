@@ -19,10 +19,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import __version__
+from .artifact_access import ArtifactAccessRead, artifact_access_view
 from .auth import read_operation, require_admin, require_visible, visibility
 from .config import Settings, get_settings
 from .database import get_session
 from .library import LibraryMaterializer
+from .run_summary import run_metadata, select_run_extraction, summary_basis
 from .models import (
     Artifact,
     ArtifactRole,
@@ -40,6 +42,8 @@ from .models import (
     RunAnnotation,
     RunSample,
     Sample,
+    SdrfDocument,
+    SdrfRow,
     SpectrumCatalog,
     SpectrumCatalogEntry,
 )
@@ -191,7 +195,7 @@ def commit_or_conflict(session: Session, instance: ModelT) -> ModelT:
 def system_health(session: SessionDep, storage: StorageDep) -> HealthRead:
     session.execute(text("SELECT 1"))
     storage.check_writable()
-    return HealthRead(version=__version__)
+    return HealthRead(version=__version__, mcp_public_url=get_settings().mcp_public_url)
 
 
 @router.get("/storage", tags=["system"])
@@ -299,8 +303,8 @@ def get_project_library(project_id: str, session: SessionDep, storage: StorageDe
 
 @router.get("/overview", tags=["system"])
 def overview(request: Request, session: SessionDep, storage: StorageDep) -> dict:
-    runs = list(session.scalars(select(Run).where(visibility(request.state.principal, Run)).order_by(Run.created_at.desc()).limit(8)))
-    jobs = list(session.scalars(select(Job).where(visibility(request.state.principal, Job)).order_by(Job.created_at.desc()).limit(8)))
+    runs = list(session.scalars(select(Run).options(*run_view_options()).where(visibility(request.state.principal, Run)).order_by(Run.created_at.desc()).limit(8)))
+    jobs = list(session.scalars(select(Job).options(joinedload(Job.input_artifact).joinedload(Artifact.run)).where(visibility(request.state.principal, Job)).order_by(Job.created_at.desc()).limit(8)))
     projects = list(session.scalars(select(Project).where(visibility(request.state.principal, Project)).order_by(Project.updated_at.desc()).limit(8)))
     locations = storage_locations(request, session, storage)
     queue_depth = session.scalar(
@@ -322,7 +326,7 @@ def overview(request: Request, session: SessionDep, storage: StorageDep) -> dict
     return {
         "runs": [run_view(run) for run in runs],
         "jobs": [job_view(job) for job in jobs],
-        "projects": [project_view(project) for project in projects],
+        "projects": project_views(session, projects),
         "storage": locations,
         "health": {
             "api": "online",
@@ -353,7 +357,7 @@ def list_projects(
 ) -> list[dict]:
     query = select(Project).where(visibility(request.state.principal, Project)).order_by(Project.name, Project.id)
     projects = list(session.scalars(query.offset(offset).limit(limit)))
-    return [project_view(project) for project in projects]
+    return project_views(session, projects)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
@@ -372,19 +376,23 @@ def update_project(
     previous_name = project.name
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
+    materializer = LibraryMaterializer(storage)
     try:
-        session.commit()
+        if project.name != previous_name:
+            # Rename and new artifact paths share the rebuild's commit witness.
+            session.flush()
+            materializer.rebuild(session)
+        else:
+            session.commit()
+            materializer.write_project_manifest(project)
+            materializer.write_catalog(session)
     except IntegrityError as error:
         session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Project metadata conflicts with an existing project") from error
+    except (OSError, ValueError) as error:
+        session.rollback()
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Project update failed: {error}") from error
     session.refresh(project)
-    materializer = LibraryMaterializer(storage)
-    if project.name != previous_name:
-        materializer.rebuild(session)
-        session.commit()
-    else:
-        materializer.write_project_manifest(project)
-        materializer.write_catalog(session)
     return project
 
 
@@ -678,12 +686,12 @@ def create_run(
     if payload.sample_id:
         sample = fetch_or_404(session, Sample, payload.sample_id)
         if sample.experiment_id != payload.experiment_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Sample belongs to a different experiment")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Sample belongs to a different experiment")
     linked_samples: list[tuple[Sample, object]] = []
     for item in payload.samples:
         sample = fetch_or_404(session, Sample, item.sample_id)
         if sample.experiment.project_id != experiment.project_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Run samples must belong to the same project")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Run samples must belong to the same project")
         linked_samples.append((sample, item))
     if payload.instrument_id:
         fetch_or_404(session, Instrument, payload.instrument_id)
@@ -784,12 +792,19 @@ def list_runs(
         def matches(column):
             return column.ilike(pattern, escape="\\")
         statement = statement.where(or_(
+            Run.id == query.strip(),
             matches(Run.name),
             Run.experiment.has(matches(Experiment.name)),
             Run.experiment.has(Experiment.project.has(matches(Project.name))),
             Run.sample.has(matches(Sample.name)),
             Run.sample_links.any(RunSample.sample.has(matches(Sample.name))),
             Run.instrument.has(matches(Instrument.name)),
+            Run.artifacts.any(or_(
+                matches(Artifact.original_filename),
+                matches(Artifact.library_path),
+                Artifact.id == query.strip(),
+                Artifact.sha256 == query.strip().lower().removeprefix("sha256:"),
+            )),
         ))
     if assignment_status:
         statement = statement.where(Run.assignment_status == assignment_status)
@@ -804,14 +819,7 @@ def list_runs(
         statement = statement.where(Run.experiment_id == experiment_id)
     total = session.scalar(select(func.count()).select_from(statement.subquery())) if page else None
     rows = [run_view(run) for run in session.scalars(
-        statement.options(
-            joinedload(Run.experiment).joinedload(Experiment.project),
-            joinedload(Run.sample),
-            joinedload(Run.instrument),
-            selectinload(Run.sample_links).joinedload(RunSample.sample),
-            selectinload(Run.artifacts).selectinload(Artifact.extraction_results),
-            selectinload(Run.artifacts).selectinload(Artifact.jobs_as_input),
-        ).order_by(Run.created_at.desc(), Run.id).offset(offset).limit(limit)
+        statement.options(*run_view_options()).order_by(Run.created_at.desc(), Run.id).offset(offset).limit(limit)
     )]
     if page:
         return {"items": rows, "total": total, "next_offset": offset + len(rows) if offset + len(rows) < total else None, "experiment_counts": counts}
@@ -834,7 +842,7 @@ def bulk_assign_runs(
     storage: StorageDep,
 ) -> list[dict]:
     if len(set(payload.run_ids)) != len(payload.run_ids):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "run_ids must be unique")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "run_ids must be unique")
     runs = list(session.scalars(select(Run).where(Run.id.in_(payload.run_ids))))
     if len(runs) != len(payload.run_ids):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "One or more runs were not found")
@@ -902,7 +910,7 @@ def update_recipe(
         expected_format = "MGF" if next_parameters["preset"] == "casanovo_mgf" else "mzML"
         if next_format != expected_format:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"{next_parameters['preset']} produces {expected_format}",
             )
     changed_definition = any(
@@ -1119,7 +1127,7 @@ def _decode_spectrum_cursor(cursor: str, sort: str, direction: str) -> dict:
         return value
     except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error) as error:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Spectrum query cursor is invalid for this sort",
         ) from error
 
@@ -1477,7 +1485,7 @@ async def browse_artifact_spectra(
     ]
     if sum(finders) > 1:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Choose only one spectrum catalog search",
         )
     source = storage.resolve_library(artifact.library_path)
@@ -1530,7 +1538,7 @@ async def get_artifact_spectrum(
     selectors = [index is not None, scan_number is not None, native_id is not None]
     if sum(selectors) > 1:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Choose only one of index, scan_number, or native_id",
         )
     if not any(selectors):
@@ -1611,6 +1619,12 @@ def artifact_location(
     }
 
 
+@router.get("/artifacts/{artifact_id}/access", response_model=ArtifactAccessRead, tags=["artifacts"])
+def artifact_access(artifact_id: str, session: SessionDep, storage: StorageDep) -> ArtifactAccessRead:
+    """Resolve file access with the caller's normal project read permissions."""
+    return artifact_access_view(fetch_or_404(session, Artifact, artifact_id), storage)
+
+
 @router.post(
     "/runs/{run_id}/artifacts/upload",
     response_model=ArtifactRead,
@@ -1638,17 +1652,17 @@ def upload_artifact(
     if role == ArtifactRole.DERIVED:
         require_worker_token(settings, request, x_spectarr_worker_token)
     if file.size is not None and file.size > settings.max_upload_bytes:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Upload exceeds configured size limit")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Upload exceeds configured size limit")
     validate_derivation_links(session, run_id, parent_artifact_id, recipe_id)
     stored = storage.ingest_stream(file.file)
     if expected_sha256 and not secrets.compare_digest(stored.sha256, expected_sha256.lower()):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Uploaded artifact checksum does not match")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Uploaded artifact checksum does not match")
     try:
         metadata_json = json.loads(metadata_json_value) if metadata_json_value else {}
     except json.JSONDecodeError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "metadata_json must be valid JSON") from error
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "metadata_json must be valid JSON") from error
     if not isinstance(metadata_json, dict):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "metadata_json must be an object")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "metadata_json must be an object")
     return create_artifact_record(
         session,
         storage=storage,
@@ -1686,7 +1700,7 @@ def import_artifact(
     try:
         stored = storage.ingest_path(source)
     except (OSError, ValueError) as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     return create_artifact_record(
         session,
         storage=storage,
@@ -1726,8 +1740,10 @@ def request_derivative(run_id: str, payload: DerivativeRequest, session: Session
     )
     if artifact is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Run has no ready source artifact")
+    if artifact.state != ArtifactState.READY:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Input artifact is not ready")
     if artifact.run_id != run_id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Input artifact belongs to a different run")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Input artifact belongs to a different run")
     recipe = fetch_or_404(session, ConversionRecipe, payload.recipe_id) if payload.recipe_id else None
     if recipe is None and payload.format:
         recipe = builtin_profile_for_format(session, payload.format)
@@ -1752,7 +1768,7 @@ def request_derivative(run_id: str, payload: DerivativeRequest, session: Session
                 ),
             )
     if recipe is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A valid recipe is required")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A valid recipe is required")
     if not recipe.enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "Conversion recipe is disabled")
     fingerprint = recipe_fingerprint(artifact.sha256, recipe, payload.parameters)
@@ -1921,11 +1937,11 @@ def update_job(
         and not payload.output_artifact_id
         and not job.output_artifact_id
     ):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A conversion job requires an output artifact")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A conversion job requires an output artifact")
     if payload.output_artifact_id:
         output = fetch_or_404(session, Artifact, payload.output_artifact_id)
         if job.input_artifact and output.run_id != job.input_artifact.run_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Output artifact belongs to a different run")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Output artifact belongs to a different run")
     for key, value in values.items():
         setattr(job, key, value)
     now = datetime.now(timezone.utc)
@@ -1936,6 +1952,24 @@ def update_job(
         job.lease_expires_at = None
         if payload.state == JobState.SUCCEEDED:
             job.progress = 1.0
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobRead, tags=["jobs"])
+def cancel_queued_job(job_id: str, session: SessionDep) -> Job:
+    job = fetch_or_404(session, Job, job_id)
+    if job.state == JobState.CANCELLED:
+        return job
+    cancelled = session.scalar(
+        update(Job)
+        .where(Job.id == job_id, Job.state == JobState.QUEUED)
+        .values(state=JobState.CANCELLED, finished_at=datetime.now(timezone.utc), lease_expires_at=None)
+        .returning(Job.id)
+    )
+    if cancelled is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only queued jobs can be cancelled here. Refresh to see its current state.")
     session.commit()
     session.refresh(job)
     return job
@@ -2056,7 +2090,7 @@ def validate_derivation_links(
     if parent_artifact_id:
         parent = fetch_or_404(session, Artifact, parent_artifact_id)
         if parent.run_id != run_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Parent artifact belongs to a different run")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Parent artifact belongs to a different run")
     if recipe_id:
         fetch_or_404(session, ConversionRecipe, recipe_id)
 
@@ -2132,7 +2166,19 @@ def artifact_view(artifact: Artifact) -> dict:
         "status": status_name,
         "libraryPath": artifact.library_path,
         "materializationMode": artifact.materialization_mode,
+        "isDirectory": artifact.bundle_manifest is not None,
     }
+
+
+def run_view_options() -> tuple:
+    return (
+        joinedload(Run.experiment).joinedload(Experiment.project),
+        joinedload(Run.sample),
+        joinedload(Run.instrument),
+        selectinload(Run.sample_links).joinedload(RunSample.sample),
+        selectinload(Run.artifacts).selectinload(Artifact.extraction_results),
+        selectinload(Run.artifacts).selectinload(Artifact.jobs_as_input),
+    )
 
 
 def run_view(run: Run) -> dict:
@@ -2145,8 +2191,7 @@ def run_view(run: Run) -> dict:
         ),
         None,
     )
-    extraction_results = [result for artifact in artifacts for result in artifact.extraction_results]
-    latest_extraction = max(extraction_results, key=lambda result: result.updated_at, default=None)
+    latest_extraction, selection_reason = select_run_extraction(run)
     latest_jobs: dict[tuple[str, str, str | None], Job] = {}
     for artifact in artifacts:
         for job in artifact.jobs_as_input:
@@ -2170,7 +2215,7 @@ def run_view(run: Run) -> dict:
         run_status = "warning"
     else:
         run_status = "ready" if source else "warning"
-    metadata = run.metadata_json or {}
+    metadata = run_metadata(run, latest_extraction)
     sample_links = [
         {
             "id": link.id,
@@ -2212,7 +2257,7 @@ def run_view(run: Run) -> dict:
         "experimentName": run.experiment.name,
         "sampleName": ", ".join(link["sample_name"] for link in sample_links) or "Unassigned",
         "instrument": run.instrument.name if run.instrument else "Unknown",
-        "acquiredAt": (run.acquired_at or run.created_at).isoformat(),
+        "acquiredAt": run.acquired_at.isoformat() if run.acquired_at else None,
         "importedAt": run.created_at.isoformat(),
         "status": run_status,
         "sourceFormat": dashboard_format(source.format) if source else "RAW",
@@ -2223,9 +2268,26 @@ def run_view(run: Run) -> dict:
         "ms2Count": metadata.get("ms2_count"),
         "durationMinutes": metadata.get("duration_minutes"),
         "artifacts": [artifact_view(artifact) for artifact in artifacts],
+        "processing_jobs": [
+            {
+                "id": job.id,
+                "kind": job.kind,
+                "state": job.state,
+                "progress": job.progress,
+                "input_artifact_id": job.input_artifact_id,
+                "output_format": (job.parameters.get("recipe_snapshot") or {}).get("output_format"),
+                "detail": job.error or job.parameters.get("detail", ""),
+                "created_at": job.created_at,
+            }
+            for job in sorted(latest_jobs.values(), key=lambda row: row.created_at, reverse=True)
+        ],
+        "summary_basis": summary_basis(latest_extraction, selection_reason),
         "latest_extraction": (
             {
                 "id": latest_extraction.id,
+                "artifact_id": latest_extraction.artifact_id,
+                "artifact_name": latest_extraction.artifact.original_filename,
+                "selection_reason": selection_reason,
                 "schema_version": latest_extraction.schema_version,
                 "extractor": latest_extraction.extractor,
                 "extractor_version": latest_extraction.extractor_version,
@@ -2241,35 +2303,59 @@ def run_view(run: Run) -> dict:
     }
 
 
-def project_view(project: Project) -> dict:
-    runs = [run for experiment in project.experiments for run in experiment.runs]
-    return {
-        "id": project.id,
-        "name": project.name,
-        "description": project.description,
-        "system_key": project.system_key,
-        "metadata_json": project.metadata_json,
-        "sdrf": (
-            {
-                "status": project.sdrf_document.status,
-                "revision": project.sdrf_document.revision,
-                "row_count": len(project.sdrf_document.rows),
-                "source_filename": project.sdrf_document.source_filename,
-            }
-            if project.sdrf_document
-            else None
-        ),
-        "created_at": project.created_at,
-        "updated_at": project.updated_at,
-        "runCount": len(runs),
-        "sizeBytes": sum(
-            artifact.byte_size
-            for run in runs
-            for artifact in run.artifacts
-            if artifact.state == ArtifactState.READY
-        ),
-        "updatedAt": project.updated_at.isoformat(),
+def project_views(session: Session, projects: list[Project]) -> list[dict]:
+    if not projects:
+        return []
+    project_ids = [project.id for project in projects]
+    run_counts = dict(session.execute(
+        select(Experiment.project_id, func.count(Run.id))
+        .join(Run, Run.experiment_id == Experiment.id)
+        .where(Experiment.project_id.in_(project_ids))
+        .group_by(Experiment.project_id)
+    ).all())
+    sizes = dict(session.execute(
+        select(Experiment.project_id, func.sum(Artifact.byte_size))
+        .join(Run, Run.experiment_id == Experiment.id)
+        .join(Artifact, Artifact.run_id == Run.id)
+        .where(Experiment.project_id.in_(project_ids), Artifact.state == ArtifactState.READY)
+        .group_by(Experiment.project_id)
+    ).all())
+    documents = {
+        row.project_id: {
+            "status": row.status,
+            "revision": row.revision,
+            "row_count": row.row_count,
+            "source_filename": row.source_filename,
+        }
+        for row in session.execute(
+            select(
+                SdrfDocument.project_id, SdrfDocument.status, SdrfDocument.revision,
+                SdrfDocument.source_filename, func.count(SdrfRow.id).label("row_count"),
+            )
+            .outerjoin(SdrfRow, SdrfRow.document_id == SdrfDocument.id)
+            .where(SdrfDocument.project_id.in_(project_ids))
+            .group_by(
+                SdrfDocument.project_id, SdrfDocument.status, SdrfDocument.revision,
+                SdrfDocument.source_filename,
+            )
+        )
     }
+    return [
+        {
+            "id": project.id,
+            "name": project.name,
+            "description": project.description,
+            "system_key": project.system_key,
+            "metadata_json": project.metadata_json,
+            "sdrf": documents.get(project.id),
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+            "runCount": run_counts.get(project.id, 0),
+            "sizeBytes": sizes.get(project.id, 0),
+            "updatedAt": project.updated_at.isoformat(),
+        }
+        for project in projects
+    ]
 
 
 def assign_runs(
@@ -2287,10 +2373,10 @@ def assign_runs(
     require_visible(session, principal, Run, [run.id for run in runs], write=True)
     destination = fetch_or_404(session, Experiment, experiment_id)
     if destination.project.system_key:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Runs cannot be assigned to a system inbox")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Runs cannot be assigned to a system inbox")
     sample = fetch_or_404(session, Sample, sample_id) if sample_id else None
     if sample and sample.experiment_id != destination.id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Sample belongs to a different experiment")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Sample belongs to a different experiment")
 
     materializer = LibraryMaterializer(storage)
     old_projects: set[Project] = set()

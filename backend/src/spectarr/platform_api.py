@@ -30,6 +30,7 @@ from .auth import (
 from .config import get_settings
 from .database import get_session
 from .library import LibraryMaterializer
+from .run_summary import METRIC_KEYS, select_run_extraction, summary_basis
 from .models import (
     Agent,
     ApiToken,
@@ -119,6 +120,13 @@ def issue_user_session(session: Session, user: User, name: str) -> tuple[ApiToke
 
 @auth_router.post("/auth/bootstrap", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
 def bootstrap_admin(payload: BootstrapRequest, session: SessionDep) -> dict:
+    from .locking import file_lock
+
+    with file_lock(get_settings().storage_root / ".spectarr" / "bootstrap.lock", exclusive=True, blocking=True):
+        return _bootstrap_admin(payload, session)
+
+
+def _bootstrap_admin(payload: BootstrapRequest, session: Session) -> dict:
     if get_settings().effective_auth_mode == "local":
         raise HTTPException(status.HTTP_409_CONFLICT, "Password bootstrap is unavailable in local mode")
     if session.scalar(select(func.count(User.id))):
@@ -226,7 +234,7 @@ def change_password(
     if not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect")
     if verify_password(payload.new_password, user.password_hash):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "New password must be different")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "New password must be different")
     user.password_hash = hash_password(payload.new_password)
     current_digest = None
     if authorization and authorization.lower().startswith("bearer "):
@@ -339,13 +347,13 @@ def create_token(payload: TokenCreate, request: Request, session: SessionDep) ->
     principal: Principal = request.state.principal
     user_id = payload.user_id or principal.user_id
     if user_id is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "user_id is required")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "user_id is required")
     if user_id != principal.user_id:
         require_admin(request)
     user = fetch_or_404(session, User, user_id)
     allowed = {"library:read", "library:write", "jobs:read", "jobs:write", "agents:write", "admin", "*"}
     if not set(payload.scopes).issubset(allowed):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Token contains an unknown scope")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Token contains an unknown scope")
     if not principal.allows("admin") and not set(payload.scopes).issubset(principal.scopes):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot grant scopes not held by the caller")
     raw = issue_secret()
@@ -462,13 +470,13 @@ def create_extraction_result(
     else:
         session.add(result)
     artifact.metadata_json = {**artifact.metadata_json, "latest_extraction": payload.payload}
-    artifact.run.metadata_json = {**artifact.run.metadata_json, **normalized_run_metadata(payload.payload)}
+    artifact.run.metadata_json = {key: value for key, value in artifact.run.metadata_json.items() if key not in METRIC_KEYS}
     if existing is None:
         event = EventOutbox(
             topic="artifact.metadata_extracted",
             aggregate_type="artifact",
             aggregate_id=artifact.id,
-            dedupe_key=f"metadata:{artifact.id}:{payload.extractor}:{payload.extractor_version}:{payload.schema_version}",
+            dedupe_key=f"metadata:{artifact.id}:{payload.extractor}:{payload.extractor_version}:{payload.schema_version}:{payload.result_type}",
             payload={"artifact_id": artifact.id, "run_id": artifact.run_id, "result_type": payload.result_type},
         )
         session.add(event)
@@ -516,18 +524,15 @@ def latest_extraction_result(
 
 @platform_router.get("/runs/{run_id}/qc", tags=["extraction"])
 def latest_run_qc(run_id: str, session: SessionDep) -> dict:
-    fetch_or_404(session, Run, run_id)
-    result = session.scalar(
-        select(ExtractionResult)
-        .join(Artifact, ExtractionResult.artifact_id == Artifact.id)
-        .where(Artifact.run_id == run_id)
-        .order_by(ExtractionResult.updated_at.desc())
-    )
+    run = fetch_or_404(session, Run, run_id)
+    result, reason = select_run_extraction(run)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No QC extraction exists")
     return {
         "run_id": run_id,
         "extraction_result_id": result.id,
+        "artifact_id": result.artifact_id,
+        "summary_basis": summary_basis(result, reason),
         "schema_version": result.schema_version,
         "qc_summary": result.payload.get("qc_summary", {}),
         "warnings": result.warnings,
@@ -586,7 +591,7 @@ def create_automation_rule(
             parameters = action.get("parameters", {})
             if not action.get("recipe_id") and not (parameters.get("format") or action.get("format")):
                 raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
                     "Convert automation requires recipe_id or parameters.format",
                 )
     rule = commit_or_conflict(session, AutomationRule(**payload.model_dump()))
@@ -622,7 +627,7 @@ def register_agent(
     if payload.destination_experiment_id:
         direct_destination = fetch_or_404(session, Experiment, payload.destination_experiment_id)
         if direct_destination.project.system_key:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Direct destination cannot be a system inbox")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Direct destination cannot be a system inbox")
     registration_key = request.headers.get("Idempotency-Key") or payload.metadata_json.get("local_agent_id")
     raw = issue_secret("agt")
     agent = session.scalar(select(Agent).where(Agent.registration_key == registration_key)) if registration_key else None
@@ -677,7 +682,7 @@ def update_agent(
     if payload.destination_mode == "direct":
         destination = fetch_or_404(session, Experiment, payload.destination_experiment_id)
         if destination.project.system_key:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Direct destination cannot be a system inbox")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Direct destination cannot be a system inbox")
     if payload.enabled is not None:
         agent.enabled = payload.enabled
         agent.status = "offline" if payload.enabled else "disabled"
@@ -751,6 +756,9 @@ def create_upload_session(
     storage: StorageDep,
 ) -> dict:
     principal = require_agent(request)
+    from .external_api import validate_external_upload
+
+    validate_external_upload(session, payload, principal.agent_id, idempotency_key)
     existing_session = session.scalar(
         select(UploadSession).where(
             UploadSession.agent_id == principal.agent_id,
@@ -786,7 +794,7 @@ def create_upload_session(
             return upload_session_view(existing_session)
     size = payload.total_size if payload.total_size is not None else bundle_total_size(payload.bundle_manifest.model_dump())
     if size > get_settings().max_upload_bytes:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Upload exceeds configured size limit")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Upload exceeds configured size limit")
     agent = fetch_or_404(session, Agent, principal.agent_id)
     run = resolve_upload_run(session, payload, agent, storage)
     bundle_digest = bundle_manifest_digest(payload.bundle_manifest.model_dump()) if payload.bundle_manifest else None
@@ -1010,7 +1018,7 @@ def complete_upload_session(
         failed_upload.state = UploadState.FAILED
         failed_upload.error = str(error)
         session.commit()
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     except Exception as error:
         session.rollback()
         retryable_upload = fetch_or_404(session, UploadSession, upload_id)
@@ -1210,7 +1218,7 @@ def update_webhook_delivery(
         raise HTTPException(status.HTTP_409_CONFLICT, "Webhook delivery is not leased to this worker")
     next_status = payload.get("status")
     if next_status not in {"delivered", "retry", "failed"}:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid delivery status")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid delivery status")
     delivery.status = next_status
     delivery.response_status = payload.get("response_status")
     delivery.last_error = payload.get("error")
@@ -1232,28 +1240,6 @@ def update_webhook_delivery(
         delivery.event.published_at = datetime.now(timezone.utc)
         session.commit()
     return delivery
-
-
-def normalized_run_metadata(payload: dict) -> dict:
-    qc_summary = payload.get("qc_summary") if isinstance(payload.get("qc_summary"), dict) else {}
-    merged = {**qc_summary, **payload}
-    aliases = {
-        "spectra_count": ("spectra_count", "spectrum_count"),
-        "ms2_count": ("ms2_count",),
-        "duration_minutes": ("duration_minutes",),
-    }
-    normalized = {
-        target: merged[source]
-        for target, sources in aliases.items()
-        for source in sources
-        if source in merged
-    }
-    levels = qc_summary.get("spectra_by_ms_level", {})
-    if "ms2_count" not in normalized and isinstance(levels, dict):
-        normalized["ms2_count"] = levels.get("2", levels.get(2))
-    if "duration_minutes" not in normalized and qc_summary.get("acquisition_duration_seconds") is not None:
-        normalized["duration_minutes"] = qc_summary["acquisition_duration_seconds"] / 60
-    return {key: value for key, value in normalized.items() if value is not None}
 
 
 def bundle_total_size(manifest: dict | None) -> int:
@@ -1305,7 +1291,7 @@ def resolve_upload_run(
     if values.get("sample_id"):
         sample = fetch_or_404(session, Sample, values["sample_id"])
         if sample.experiment_id != destination.id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Sample belongs to a different experiment")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Sample belongs to a different experiment")
     if not values.get("instrument_id") and agent.metadata_json.get("instrument_id"):
         values["instrument_id"] = agent.metadata_json["instrument_id"]
     values["metadata_json"] = {
@@ -1363,10 +1349,10 @@ def ensure_agent_inbox(session: Session, storage: StorageDep, agent: Agent) -> E
 
 def safe_relative_path(raw: str) -> PurePosixPath:
     if "\\" in raw:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Bundle paths must use forward slashes")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Bundle paths must use forward slashes")
     path = PurePosixPath(raw)
     if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid bundle relative path")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid bundle relative path")
     return path
 
 
@@ -1441,7 +1427,7 @@ async def append_request_body(
             async for chunk in request.stream():
                 if actual_offset + written + len(chunk) > total_size:
                     raise HTTPException(
-                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        status.HTTP_413_CONTENT_TOO_LARGE,
                         "Chunk exceeds declared upload size",
                         headers={"Upload-Offset": str(actual_offset)},
                     )

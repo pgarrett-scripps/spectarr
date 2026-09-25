@@ -4,13 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spectarr-converter"
-version = "0.3.0"
+version = "0.4.0"
 description = "Structured ProteoWizard conversion adapter for Spectarr"
 license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
+  "defusedxml>=0.7.1,<1",
   "msconvert-cli>=1.2.0,<2",
-  "spxtacular[mzml]>=0.6.0,<1",
+  "spxtacular[mzml]>=0.9.0,<0.10",
 ]
 
 [project.scripts]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import sqlite3
+from contextlib import closing
 import tarfile
 
 import pytest
@@ -21,7 +22,7 @@ def snapshot_fixture(tmp_path):
     (bundle_source / 'analysis.bin').write_bytes(b'vendor data')
     bundle = storage.ingest_path(bundle_source)
     database = tmp_path / 'spectarr.db'
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute('CREATE TABLE artifacts (storage_key TEXT, sha256 TEXT, byte_size INTEGER, bundle_manifest TEXT, state TEXT)')
         connection.executemany('INSERT INTO artifacts VALUES (?, ?, ?, ?, ?)', [
             (source.key, source.sha256, source.byte_size, 'null', 'ready'),
@@ -61,6 +62,31 @@ def test_snapshot_verifies_files_and_vendor_bundle_members(tmp_path):
         verify_objects(database, storage.root)
     with pytest.raises(RuntimeError, match='Missing or unsafe'):
         create_backup_set(tmp_path, io.BytesIO())
+
+
+def test_backup_closes_database_connections_on_success_and_failure(tmp_path, monkeypatch):
+    import spectarr.backup as backup
+
+    database, _, _, _ = snapshot_fixture(tmp_path)
+    connect = sqlite3.connect
+    connections = []
+
+    def tracked_connect(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(backup.sqlite3, 'connect', tracked_connect)
+    backup.create_backup(database, io.BytesIO())
+    backup.required_objects(database)
+    with closing(connect(database)) as connection, connection:
+        connection.execute('DROP TABLE artifacts')
+    with pytest.raises(sqlite3.OperationalError):
+        backup.required_objects(database)
+    assert len(connections) == 5
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match='closed database'):
+            connection.execute('SELECT 1')
 
 
 def test_backup_rejects_corrupt_bundle_members_even_with_valid_database(tmp_path):

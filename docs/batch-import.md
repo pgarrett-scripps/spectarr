@@ -1,6 +1,6 @@
 # Batch import
 
-Open **Import run** from a project, or **Import data** from the overview. A project opened before import stays selected.
+Open **Import run** from a project, or **Import data** from the overview. A project opened before import stays selected. For public PRIDE datasets, choose **Online repository (PRIDE)** and follow the [online dataset import guide](online-dataset-import.md). The instructions below describe browser uploads and server paths.
 
 1. Choose the destination project and experiment. Existing names are reused. New names create the destination when importing starts.
 2. Select multiple source files. You can select more files to extend the queue. Alternatively, choose server paths, enter one allowlisted path per line, and select **Add paths**. A batch may contain both files and paths.

@@ -1,7 +1,9 @@
-import { AlertTriangle, CheckCircle2, ChevronRight, Download, FileArchive, FileCheck2, FileUp, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronRight, Download, FileArchive, FileCheck2, FileUp, RefreshCw, Save } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useParams } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 import { ApiError, api } from '../api/client'
+import { SdrfEditor } from '../components/SdrfEditor'
 import { formatBytes } from '../components/Data'
 import { ApiErrorBanner, EmptyState, LoadingState, PageHeader, Panel } from '../components/Page'
 import type { Project, SdrfDocument, SdrfTemplate, SdrfValidationReport, SubmissionPreview } from '../types'
@@ -14,12 +16,20 @@ function saveBlob(blob: Blob, filename: string) {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
+  window.document.body.append(anchor)
   anchor.click()
-  URL.revokeObjectURL(url)
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 export function ProjectMetadata() {
   const { projectId = '' } = useParams()
+  return <ProjectMetadataEditor key={projectId} projectId={projectId} />
+}
+
+function ProjectMetadataEditor({ projectId }: { projectId: string }) {
+  const auth = useAuth()
+  const canEdit = auth.user?.role === 'admin' || auth.user?.role === 'operator'
   const uploadRef = useRef<HTMLInputElement>(null)
   const [project, setProject] = useState<Project>()
   const [document, setDocument] = useState<SdrfDocument>()
@@ -31,6 +41,8 @@ export function ProjectMetadata() {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [sdrfDirty, setSdrfDirty] = useState(false)
+  const operation = useRef(false)
   const [metadata, setMetadata] = useState({
     keywords: '', contacts: '', publications: '', funding: '', license: '', repository: '', embargoDate: ''
   })
@@ -39,6 +51,7 @@ export function ProjectMetadata() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    setSdrfDirty(false)
     try {
       const [projectValue, templateValues, previewValue] = await Promise.all([
         api.project(projectId), api.sdrfTemplates(), api.submissionPreview(projectId)
@@ -78,6 +91,8 @@ export function ProjectMetadata() {
   }, [load])
 
   const perform = async (label: string, action: () => Promise<void>) => {
+    if (operation.current) return
+    operation.current = true
     setBusy(label)
     setError('')
     setNotice('')
@@ -86,6 +101,7 @@ export function ProjectMetadata() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : `${label} failed`)
     } finally {
+      operation.current = false
       setBusy('')
     }
   }
@@ -113,6 +129,7 @@ export function ProjectMetadata() {
   const generate = () => perform('Generating SDRF', async () => {
     const value = await api.generateProjectSdrf(projectId)
     setDocument(value)
+    setSdrfDirty(false)
     setValidation(undefined)
     await refreshPreview()
     setNotice(`Generated ${value.rows.length} SDRF rows from the project`)
@@ -122,12 +139,22 @@ export function ProjectMetadata() {
     if (!document) return
     const value = await api.saveProjectSdrf(projectId, document)
     setDocument(value)
+    setSdrfDirty(false)
     setValidation(undefined)
     await refreshPreview()
     setNotice(`Saved SDRF revision ${value.revision}`)
   })
 
+  const ensureSaved = async () => {
+    if (!document || !sdrfDirty) return
+    const saved = await api.saveProjectSdrf(projectId, document)
+    setDocument(saved)
+    setSdrfDirty(false)
+    setValidation(undefined)
+  }
+
   const validate = () => perform('Validating SDRF', async () => {
+    await ensureSaved()
     const report = await api.validateProjectSdrf(projectId, ontology)
     setValidation(report)
     setDocument(current => current ? { ...current, status: report.valid ? 'valid' : 'invalid', validationReport: report } : current)
@@ -140,13 +167,21 @@ export function ProjectMetadata() {
     void perform('Importing SDRF', async () => {
       const value = await api.importProjectSdrf(projectId, file)
       setDocument(value)
+      setSdrfDirty(false)
       setValidation(undefined)
       await refreshPreview()
       setNotice(`Imported ${value.rows.length} SDRF rows and synchronized mapped samples`)
     })
   }
 
-  const editCell = (rowIndex: number, columnIndex: number, value: string) => setDocument(current => {
+  const updateDraft = (edit: (current: SdrfDocument | undefined) => SdrfDocument | undefined) => {
+    setDocument(edit)
+    setSdrfDirty(true)
+    setValidation(undefined)
+    setNotice('')
+  }
+
+  const editCell = (rowIndex: number, columnIndex: number, value: string) => updateDraft(current => {
     if (!current) return current
     return {
       ...current,
@@ -157,7 +192,7 @@ export function ProjectMetadata() {
     }
   })
 
-  const editColumn = (columnIndex: number, value: string) => setDocument(current => current ? {
+  const editColumn = (columnIndex: number, value: string) => updateDraft(current => current ? {
     ...current,
     status: 'draft',
     columns: current.columns.map((column, index) => index === columnIndex ? value : column)
@@ -166,7 +201,7 @@ export function ProjectMetadata() {
   const addColumn = () => {
     const name = window.prompt('SDRF column name, for example factor value[condition]')?.trim()
     if (!name) return
-    setDocument(current => current ? {
+    updateDraft(current => current ? {
       ...current,
       status: 'draft',
       columns: [...current.columns, name],
@@ -174,26 +209,26 @@ export function ProjectMetadata() {
     } : current)
   }
 
-  const removeColumn = (columnIndex: number) => setDocument(current => current ? {
+  const removeColumn = (columnIndex: number) => updateDraft(current => current ? {
     ...current,
     status: 'draft',
     columns: current.columns.filter((_, index) => index !== columnIndex),
     rows: current.rows.map(row => ({ ...row, values: row.values.filter((_, index) => index !== columnIndex) }))
   } : current)
 
-  const addRow = () => setDocument(current => current ? {
+  const addRow = () => updateDraft(current => current ? {
     ...current,
     status: 'draft',
     rows: [...current.rows, { position: current.rows.length, values: current.columns.map(() => 'not available') }]
   } : current)
 
-  const removeRow = (rowIndex: number) => setDocument(current => current ? {
+  const removeRow = (rowIndex: number) => updateDraft(current => current ? {
     ...current,
     status: 'draft',
     rows: current.rows.filter((_, index) => index !== rowIndex).map((row, position) => ({ ...row, position }))
   } : current)
 
-  const toggleTemplate = (template: SdrfTemplate) => setDocument(current => {
+  const toggleTemplate = (template: SdrfTemplate) => updateDraft(current => {
     if (!current) return current
     const name = `${template.name} ${template.version}`
     const selected = current.templates.includes(name)
@@ -201,9 +236,11 @@ export function ProjectMetadata() {
   })
 
   const exportSdrf = () => perform('Exporting SDRF', async () => {
+    await ensureSaved()
     saveBlob(await api.downloadProjectSdrf(projectId), document?.sourceFilename ?? `${project?.name ?? 'project'}.sdrf.tsv`)
   })
   const exportSubmission = () => perform('Building repository package', async () => {
+    await ensureSaved()
     saveBlob(await api.downloadSubmission(projectId), `${project?.name ?? 'project'}-repository-submission.zip`)
   })
 
@@ -213,30 +250,33 @@ export function ProjectMetadata() {
     <nav className="section-tabs" aria-label="Project sections">
       <NavLink to={`/projects/${projectId}/runs`}>Runs</NavLink>
       <NavLink to={`/projects/${projectId}/metadata`} className="active">Metadata and SDRF</NavLink>
+      <NavLink to={`/projects/${projectId}/external`}>External files</NavLink>
     </nav>
     <LoadingState label="Loading project metadata" />
   </>
 
   if (!project) return <>
     <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>Metadata unavailable</span></nav>
-    <PageHeader eyebrow="Project metadata" title="Project metadata unavailable" description="Spectarr could not load this project or its repository metadata." />
+    <PageHeader eyebrow="Project metadata" title="Project metadata unavailable" description="MassSpec could not load this project or its repository metadata." />
     {error && <ApiErrorBanner message={error} onRetry={() => void load()} />}
   </>
 
   return <>
     <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>{project?.name ?? 'Project'}</span></nav>
-    <PageHeader eyebrow="Project metadata" title={project?.name ?? 'SDRF'} description="Edit repository-ready project metadata and the exact ordered SDRF table." actions={<>
-      <button className="button button-primary" disabled={!project || Boolean(busy)} onClick={() => void saveProject()}><Save size={16} /> Save project</button>
+    <PageHeader eyebrow="Project metadata" title={project?.name ?? 'SDRF'} description="Review samples, edit their metadata, and prepare a repository submission." actions={<>
+      <button className="button button-primary" disabled={!canEdit || !project || Boolean(busy)} onClick={() => void saveProject()}><Save size={16} /> Save project</button>
     </>} />
     <nav className="section-tabs" aria-label="Project sections">
       <NavLink to={`/projects/${projectId}/runs`}>Runs</NavLink>
       <NavLink to={`/projects/${projectId}/metadata`} className="active">Metadata and SDRF</NavLink>
+      <NavLink to={`/projects/${projectId}/external`}>External files</NavLink>
     </nav>
     {error && <ApiErrorBanner message={error} onRetry={() => void load()} />}
     {notice && <div className="message-banner metadata-success" role="status"><div><CheckCircle2 size={17} /><span>{notice}</span></div></div>}
 
+    <details className="metadata-disclosure project-details"><summary>Project and submission details <span>Description, contacts, publications, and repository</span></summary>
     <Panel title="Project and submission details" subtitle="These fields stay with the project and are included in the repository package manifest.">
-      <div className="metadata-form-grid">
+      <fieldset className="metadata-form-grid form-fields" disabled={!canEdit || Boolean(busy)}>
         <label><span>Project name</span><input value={project?.name ?? ''} onChange={event => setProject(current => current ? { ...current, name: event.target.value } : current)} /></label>
         <label><span>Repository target</span><input value={metadata.repository} placeholder="PRIDE, MassIVE, Panorama Public" onChange={event => setMetadata(current => ({ ...current, repository: event.target.value }))} /></label>
         <label className="metadata-wide"><span>Description</span><textarea value={project?.description ?? ''} onChange={event => setProject(current => current ? { ...current, description: event.target.value } : current)} /></label>
@@ -246,16 +286,23 @@ export function ProjectMetadata() {
         <label><span>Funding identifiers</span><textarea value={metadata.funding} onChange={event => setMetadata(current => ({ ...current, funding: event.target.value }))} /></label>
         <label><span>License</span><input value={metadata.license} placeholder="CC BY 4.0" onChange={event => setMetadata(current => ({ ...current, license: event.target.value }))} /></label>
         <label><span>Embargo date</span><input type="date" value={metadata.embargoDate} onChange={event => setMetadata(current => ({ ...current, embargoDate: event.target.value }))} /></label>
-      </div>
+      </fieldset>
     </Panel>
 
+    </details>
+
     <Panel title="SDRF metadata" subtitle="One row represents one sample linked to one assay and primary data file." className="sdrf-panel" actions={<div className="sdrf-actions">
-      <input ref={uploadRef} type="file" accept=".tsv,.txt,text/tab-separated-values" hidden onChange={event => importFile(event.target.files?.[0])} />
-      <button className="button button-secondary button-small" disabled={Boolean(busy)} onClick={() => uploadRef.current?.click()}><FileUp size={14} /> Import TSV</button>
-      <button className="button button-secondary button-small" disabled={Boolean(busy)} onClick={() => void generate()}><RefreshCw size={14} /> Generate from project</button>
-      {document && <button className="button button-primary button-small" disabled={Boolean(busy)} onClick={() => void saveSdrf()}><Save size={14} /> Save table</button>}
+      <input ref={uploadRef} type="file" accept=".tsv,.txt,text/tab-separated-values" hidden onChange={event => {
+        importFile(event.target.files?.[0])
+        event.target.value = ''
+      }} />
+      <button className="button button-secondary button-small" disabled={!canEdit || Boolean(busy)} onClick={() => uploadRef.current?.click()}><FileUp size={14} /> Import TSV</button>
+      <button className="button button-secondary button-small" disabled={!canEdit || Boolean(busy)} onClick={() => void generate()}><RefreshCw size={14} /> Generate from project</button>
+      {document && <button className="button button-primary button-small" disabled={!canEdit || Boolean(busy)} onClick={() => void saveSdrf()}><Save size={14} /> Save table</button>}
     </div>}>
-      {!document ? <EmptyState title="No SDRF document yet" description="Generate one from current runs and extracted metadata, or import an existing SDRF TSV file." action="Generate SDRF" onAction={() => void generate()} /> : <>
+      <div>
+      {sdrfDirty && <p className="repository-copy" role="status">Unsaved table edits will be saved before validation or export.</p>}
+      {!document ? <EmptyState title="No SDRF document yet" description="Generate one from current runs and extracted metadata, or import an existing SDRF TSV file." action="Generate SDRF" onAction={canEdit && !busy ? () => void generate() : undefined} /> : <>
         <div className="sdrf-summary">
           <span className={`sdrf-state sdrf-${document.status}`}>{document.status}</span>
           <span>Revision {document.revision}</span>
@@ -263,24 +310,20 @@ export function ProjectMetadata() {
           <span>{document.columns.length} columns</span>
           <span>{document.specificationVersion}</span>
         </div>
-        <div className="template-picker">
-          <strong>Validation templates</strong>
+        <details className="metadata-disclosure"><summary>Validation templates <span>{document.templates.join(", ") || "None selected"}</span></summary><fieldset className="template-picker form-fields" disabled={!canEdit || Boolean(busy)}>
           <div>{templates.map(template => {
             const value = `${template.name} ${template.version}`
             return <label key={value}><input type="checkbox" checked={document.templates.includes(value)} onChange={() => toggleTemplate(template)} />{template.name}<small>{template.kind}</small></label>
           })}</div>
-        </div>
-        <div className="sdrf-grid-wrap"><table className="sdrf-grid">
-          <thead><tr><th className="sdrf-index">#</th>{document.columns.map((column, columnIndex) => <th key={`${column}-${columnIndex}`}><div><input aria-label={`Column ${columnIndex + 1}`} value={column} onChange={event => editColumn(columnIndex, event.target.value)} /><button className="icon-button" aria-label={`Remove column ${column}`} onClick={() => removeColumn(columnIndex)}><Trash2 size={13} /></button></div></th>)}<th className="sdrf-row-action"><button className="icon-button" aria-label="Add SDRF column" onClick={addColumn}><Plus size={15} /></button></th></tr></thead>
-          <tbody>{document.rows.map((row, rowIndex) => <tr key={row.id ?? rowIndex}><td className="sdrf-index"><strong>{rowIndex + 1}</strong>{row.runId && <small title={row.runId}>mapped</small>}</td>{row.values.map((value, columnIndex) => <td key={columnIndex} className={validation?.messages.some(message => message.severity === 'error' && message.row === rowIndex && message.column === columnIndex) ? 'sdrf-cell-error' : ''}><input aria-label={`Row ${rowIndex + 1}, ${document.columns[columnIndex]}`} value={value} onChange={event => editCell(rowIndex, columnIndex, event.target.value)} /></td>)}<td className="sdrf-row-action"><button className="icon-button" aria-label={`Remove SDRF row ${rowIndex + 1}`} onClick={() => removeRow(rowIndex)}><Trash2 size={14} /></button></td></tr>)}</tbody>
-        </table></div>
-        <div className="sdrf-table-footer"><button className="button button-secondary button-small" onClick={addRow}><Plus size={14} /> Add row</button><span>Duplicate template and associated-file columns are preserved in order.</span></div>
+        </fieldset></details>
+        <SdrfEditor document={document} validation={validation} disabled={!canEdit || Boolean(busy)} editCell={editCell} editColumn={editColumn} addColumn={addColumn} removeColumn={removeColumn} addRow={addRow} removeRow={removeRow} />
       </>}
+      </div>
     </Panel>
 
     {document && <div className="sdrf-bottom-grid">
       <Panel title="Validation" subtitle="Run local structural checks and the official PSI SDRF validator.">
-        <div className="validation-controls"><label><input type="checkbox" checked={ontology} onChange={event => setOntology(event.target.checked)} /> Validate ontology terms</label><button className="button button-primary" disabled={Boolean(busy)} onClick={() => void validate()}><FileCheck2 size={16} /> Validate now</button></div>
+        <div className="validation-controls"><label><input type="checkbox" checked={ontology} onChange={event => setOntology(event.target.checked)} /> Validate ontology terms</label><button className="button button-primary" disabled={!canEdit || Boolean(busy)} onClick={() => void validate()}><FileCheck2 size={16} /> Validate now</button></div>
         {!validation ? <p className="panel-placeholder">This revision has not been validated.</p> : <div className="validation-result">
           <div className={validation.valid ? 'validation-pass' : 'validation-fail'}>{validation.valid ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}<strong>{validation.valid ? 'Valid SDRF' : `${validation.errorCount} validation errors`}</strong><span>{validation.warningCount} warnings, {validation.engine}</span></div>
           {validation.messages.length > 0 && <ul>{validation.messages.map((message, index) => <li key={`${message.code}-${index}`} className={`validation-${message.severity}`}><strong>{message.code}</strong><span>{message.message}</span>{message.row !== undefined && <small>Row {message.row + 1}{message.column !== undefined ? `, column ${message.column + 1}` : ''}</small>}</li>)}</ul>}
@@ -289,7 +332,7 @@ export function ProjectMetadata() {
       <Panel title="Repository package" subtitle="Download the SDRF, source files, derivatives, checksums, and project manifest.">
         <div className="submission-summary"><div><strong>{preview?.sourceCount ?? 0}</strong><span>source files</span></div><div><strong>{preview?.derivativeCount ?? 0}</strong><span>derived files</span></div><div><strong>{formatBytes(preview?.totalBytes ?? 0)}</strong><span>package data</span></div><div><strong>{preview?.mappedRows ?? 0}</strong><span>mapped rows</span></div></div>
         {preview && preview.unmappedRows > 0 && <p className="submission-warning"><AlertTriangle size={14} /> {preview.unmappedRows} SDRF rows are not mapped to stored primary files.</p>}
-        <div className="submission-actions"><button className="button button-secondary" disabled={Boolean(busy)} onClick={() => void exportSdrf()}><Download size={16} /> Export SDRF</button><button className="button button-primary" disabled={!preview?.ready || Boolean(busy)} title={preview?.ready ? '' : 'Validate the SDRF and add at least one source file first'} onClick={() => void exportSubmission()}><FileArchive size={16} /> Download package</button></div>
+        <div className="submission-actions"><button className="button button-secondary" disabled={Boolean(busy)} onClick={() => void exportSdrf()}><Download size={16} /> Export SDRF</button><button className="button button-primary" disabled={sdrfDirty || !preview?.ready || Boolean(busy)} title={!sdrfDirty && preview?.ready ? '' : 'Validate the SDRF and add at least one source file first'} onClick={() => void exportSubmission()}><FileArchive size={16} /> Download package</button></div>
       </Panel>
     </div>}
   </>

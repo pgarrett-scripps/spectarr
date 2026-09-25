@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import io
+from urllib.error import HTTPError
 import threading
 import unittest
 from pathlib import Path
@@ -8,7 +10,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 from spectarr_converter.models import ConversionResult, OutputArtifact
-from spectarr_converter.worker import ApiConversionWorker
+from spectarr_converter.worker import ApiConversionWorker, HttpWorkerApi, WorkerApiError
 
 
 class FakeConverter:
@@ -164,6 +166,22 @@ class WorkerTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 worker.run_forever(0.5)
         sleep.assert_called_once_with(1.0)
+
+    def test_maintenance_response_preserves_worker_loop(self) -> None:
+        api = HttpWorkerApi("http://spectarr.test")
+        response = HTTPError("http://spectarr.test/api/v1/jobs", 503, "Maintenance", {}, io.BytesIO(b"Storage maintenance is in progress"))
+        worker = ApiConversionWorker(api, Mock())
+        with patch("spectarr_converter.worker.request.urlopen", side_effect=[response, KeyboardInterrupt()]):
+            with patch("spectarr_converter.worker.time.sleep") as sleep:
+                with self.assertRaises(KeyboardInterrupt):
+                    worker.run_forever(0.5)
+        sleep.assert_called_once_with(1.0)
+
+    def test_http_authentication_errors_remain_fatal(self) -> None:
+        worker = ApiConversionWorker(Mock(), Mock())
+        worker.process_one = Mock(side_effect=WorkerApiError(401, "invalid worker token"))
+        with self.assertRaisesRegex(WorkerApiError, "invalid worker token"):
+            worker.run_forever(0.5)
 
     def test_run_forever_does_not_hide_non_connection_errors(self) -> None:
         worker = ApiConversionWorker(Mock(), Mock())

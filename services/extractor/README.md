@@ -67,6 +67,6 @@ branches. Override `SPECTARR_MZMLPY_BUILD_CONTEXT` or
 spectarr-spectrum-server --host 0.0.0.0 --port 8002
 ```
 
-The service requires `SPECTARR_WORKER_TOKEN` on every spectrum request and resolves only storage-relative paths beneath `SPECTARR_LOCAL_STORAGE_ROOT`. Compose mounts that directory read-only. The image includes the .NET 8 runtime and configures Python.NET for Thermo RawFileReader support. Unsupported vendor RAW formats should be converted to mzML for visualization.
+The service requires `SPECTARR_WORKER_TOKEN` on every spectrum request and resolves only storage-relative paths beneath `SPECTARR_LOCAL_STORAGE_ROOT`. Compose mounts that directory read-only. The image includes the .NET 10 runtime and configures Python.NET for Thermo RawFileReader support. Unsupported vendor RAW formats should be converted to mzML for visualization.
 
 Spectrum selection supports a zero-based position within MS1 or MS2, a scan number, a persistent catalog row ID, or a native ID. Native IDs use keyed random access when the reader provides it. SQLite stores the primary spectrum metadata catalog and supports indexed filtering with opaque keyset cursors. The reader's bounded in-memory catalog remains a compatibility path for artifacts that predate persistent catalog extraction. Neither path adds a companion file to the managed library.

@@ -1,0 +1,24 @@
+diff --git a/src/msconvert_cli/configs/sage.txt b/src/msconvert_cli/configs/sage.txt
+index a05f01d..31aaf64 100644
+--- a/src/msconvert_cli/configs/sage.txt
++++ b/src/msconvert_cli/configs/sage.txt
+@@ -1,5 +1,5 @@
+ mzML=true
+-filter="peakPicking vendor msLevel=1"
++filter="peakPicking vendor msLevel=1-"
+ filter="zeroSamples removeExtra"
+ filter="metadataFixer"
+ 32=true
+diff --git a/src/msconvert_cli/presets.py b/src/msconvert_cli/presets.py
+index cb90cce..0dccb0f 100644
+--- a/src/msconvert_cli/presets.py
++++ b/src/msconvert_cli/presets.py
+@@ -13,7 +13,7 @@ from typing_extensions import Self
+ class PresetConfig(Enum):
+     """Available preset configurations."""
+
+-    SAGE = ("sage", "Sage preset config (mzml, 32-bit, zlib/gzip)")
++    SAGE = ("sage", "Sage preset config (centroid mzml, all MS levels, 32-bit, zlib/gzip)")
+     BIOSAUR = ("biosaur", "Biosaur preset config (mzml)")
+     BLITZFF = ("blitzff", "BlitzFF preset config (mzml, MS1 only, 32-bit, zlib/gzip)")
+     CASANOVO = ("casanovo", "Casanovo preset config (mzml, mzwindow [50-2500], denoise, top 200 peaks)")

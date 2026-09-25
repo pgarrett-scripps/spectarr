@@ -3,31 +3,31 @@
 RESOURCES = [
     {
         "uri": "spectarr://processing/profiles",
-        "name": "Spectarr processing profiles",
+        "name": "MassSpec processing profiles",
         "description": "Named and revisioned MSConvert processing profiles",
         "mimeType": "application/json",
     },
     {
         "uri": "spectarr://processing/batches",
-        "name": "Spectarr processing batches",
+        "name": "MassSpec processing batches",
         "description": "Project, experiment, and run batch processing status",
         "mimeType": "application/json",
     },
     {
         "uri": "spectarr://automation/rules",
-        "name": "Spectarr automation rules",
+        "name": "MassSpec automation rules",
         "description": "Configured metadata and processing automation rules",
         "mimeType": "application/json",
     },
     {
         "uri": "spectarr://audit/status",
-        "name": "Spectarr audit status",
+        "name": "MassSpec audit status",
         "description": "Audit log status visible to the configured credential",
         "mimeType": "application/json",
     },
     {
         "uri": "spectarr://events/outbox/status",
-        "name": "Spectarr event outbox status",
+        "name": "MassSpec event outbox status",
         "description": "Publishing status for integration events",
         "mimeType": "application/json",
     },
@@ -36,25 +36,25 @@ RESOURCES = [
 RESOURCE_TEMPLATES = [
     {
         "uriTemplate": "spectarr://processing/batches/{batch_id}",
-        "name": "Spectarr processing batch",
+        "name": "MassSpec processing batch",
         "description": "Aggregate and item-level conversion progress for a batch",
         "mimeType": "application/json",
     },
     {
         "uriTemplate": "spectarr://projects/{project_id}",
-        "name": "Spectarr project",
-        "description": "Project metadata from the Spectarr library",
+        "name": "MassSpec project",
+        "description": "Project metadata from the MassSpec library",
         "mimeType": "application/json",
     },
     {
         "uriTemplate": "spectarr://projects/{project_id}/library",
-        "name": "Spectarr project filesystem library",
+        "name": "MassSpec project filesystem library",
         "description": "Search-ready format directories and manifest paths for a project",
         "mimeType": "application/json",
     },
     {
         "uriTemplate": "spectarr://projects/{project_id}/manifest",
-        "name": "Spectarr project manifest",
+        "name": "MassSpec project manifest",
         "description": "Runs, experiments, artifacts, checksums, and filesystem paths for a project",
         "mimeType": "application/json",
     },
@@ -72,19 +72,19 @@ RESOURCE_TEMPLATES = [
     },
     {
         "uriTemplate": "spectarr://runs/{run_id}",
-        "name": "Spectarr run",
+        "name": "MassSpec run",
         "description": "Run metadata and source completeness",
         "mimeType": "application/json",
     },
     {
         "uriTemplate": "spectarr://runs/{run_id}/artifacts",
-        "name": "Spectarr run artifacts",
+        "name": "MassSpec run artifacts",
         "description": "Source and derived artifacts belonging to a run",
         "mimeType": "application/json",
     },
     {
         "uriTemplate": "spectarr://jobs/{job_id}",
-        "name": "Spectarr job",
+        "name": "MassSpec job",
         "description": "Import or conversion job state",
         "mimeType": "application/json",
     },
@@ -110,6 +110,49 @@ RESOURCE_TEMPLATES = [
 
 
 TOOLS = [
+    {
+        "name": "search_external_entries",
+        "description": "Search external acquisitions in a project without scanning or hashing. Read next_cursor as after for the next page. External files are not managed or backed up.",
+        "inputSchema": {"type": "object", "properties": {
+            "project_id": {"type": "string"}, "query": {"type": "string"}, "after": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+        }, "required": ["project_id"], "additionalProperties": False},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "resolve_external_entry",
+        "description": "Read external locations, host scope, observation freshness and last verification. Configure an explicit root mapping and recheck local access. Does not initiate filesystem work.",
+        "inputSchema": {"type": "object", "properties": {"entry_id": {"type": "string"}},
+                        "required": ["entry_id"], "additionalProperties": False},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "list_projects",
+        "description": "List visible projects with stable IDs, run counts, and logical sizes. Use IDs to scope search_runs.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "list_experiments",
+        "description": "List visible experiments, optionally within a project, to discover IDs for scoped searches.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"project_id": {"type": "string"}},
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "resolve_artifact",
+        "description": "Resolve an artifact ID to current availability, API-server library path, authenticated download URL, checksum, and provenance IDs. Paths may be inside a container. Existence is checked, content integrity is not reverified. Bundles require filesystem access.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"artifact_id": {"type": "string"}},
+            "required": ["artifact_id"],
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
     {
         "name": "get_project_sdrf",
         "description": "Get the exact ordered SDRF table and validation state for a project.",
@@ -229,11 +272,14 @@ TOOLS = [
     },
     {
         "name": "search_runs",
-        "description": "Search and page through mass spectrometry runs in Spectarr.",
+        "description": "Find runs by names, original filenames, library paths, exact run or artifact IDs, or full SHA-256 (optionally prefixed sha256:). Returns items, total, and next_offset. Follow next_offset until null to enumerate all matches.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "sample_id": {"type": "string"},
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25},
             },

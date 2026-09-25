@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import tarfile
 import tempfile
+from contextlib import closing
 from pathlib import Path, PurePosixPath
 
 from .locking import maintenance_lock
@@ -17,7 +18,7 @@ def create_backup(database: Path, output) -> None:
     if not database.is_file():
         raise FileNotFoundError(f"Spectarr database does not exist: {database}")
     with tempfile.NamedTemporaryFile(suffix=".sqlite3") as temporary:
-        with sqlite3.connect(database) as source, sqlite3.connect(temporary.name) as destination:
+        with closing(sqlite3.connect(database)) as source, closing(sqlite3.connect(temporary.name)) as destination:
             source.backup(destination)
         verify_database(Path(temporary.name))
         temporary.seek(0)
@@ -25,7 +26,7 @@ def create_backup(database: Path, output) -> None:
 
 
 def verify_database(database: Path) -> None:
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         result = connection.execute("PRAGMA integrity_check").fetchone()
         foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchone()
     if result != ("ok",):
@@ -36,7 +37,7 @@ def verify_database(database: Path) -> None:
 
 def required_objects(database: Path) -> dict[str, tuple[str, int | None]]:
     expected: dict[str, tuple[str, int | None]] = {}
-    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
         rows = connection.execute(
             "SELECT storage_key, sha256, byte_size, bundle_manifest FROM artifacts WHERE state = 'ready'"
         )

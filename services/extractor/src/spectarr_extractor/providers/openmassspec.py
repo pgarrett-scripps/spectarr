@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+from collections.abc import Mapping
 from importlib import metadata
 from pathlib import Path
 from typing import Any, Callable
@@ -68,6 +69,12 @@ class OpenMassSpecProvider:
                     _attribute(spectrum, "ion_mobility", "inverse_mobility", "inv_mobility")
                 )
                 mobility_count, mobility_min, mobility_max = _mz_stats(mobility_values)
+                isolation_width = _number(_precursor_attribute(spectrum, "isolation_width"))
+                lower_offset = _number(_precursor_attribute(spectrum, "isolation_lower_offset"))
+                upper_offset = _number(_precursor_attribute(spectrum, "isolation_upper_offset"))
+                if isolation_width is not None and isolation_width >= 0:
+                    lower_offset = isolation_width / 2 if lower_offset is None else lower_offset
+                    upper_offset = isolation_width / 2 if upper_offset is None else upper_offset
                 builder.add(
                     SpectrumObservation(
                         native_id=_string(_attribute(spectrum, "native_id", "id")),
@@ -82,18 +89,18 @@ class OpenMassSpecProvider:
                         tic=tic,
                         bpc=bpc,
                         base_peak_mz=_base_peak_mz(mz_values, intensity_values),
-                        precursor_mz=_number(_attribute(spectrum, "precursor_mz", "selected_ion_mz")),
-                        precursor_charge=_integer(_attribute(spectrum, "precursor_charge", "charge")),
-                        collision_energy=_number(_attribute(spectrum, "collision_energy", "collision_energy_ev")),
-                        activation_type=_string(_attribute(spectrum, "activation_type", "activation")),
+                        precursor_mz=_number(_precursor_attribute(spectrum, "precursor_mz", "selected_ion_mz", "selected_mz", "target_mz")),
+                        precursor_charge=_integer(_precursor_attribute(spectrum, "precursor_charge", "charge")),
+                        collision_energy=_number(_precursor_attribute(spectrum, "collision_energy", "collision_energy_ev")),
+                        activation_type=_string(_precursor_attribute(spectrum, "activation_type", "activation")),
                         ion_mobility=mobility,
                         ion_mobility_min=mobility_min,
                         ion_mobility_max=mobility_max,
                         ion_mobility_unit=_string(_attribute(spectrum, "ion_mobility_unit")),
                         ion_mobility_present=mobility is not None or bool(mobility_count),
-                        isolation_target_mz=_number(_attribute(spectrum, "isolation_target_mz")),
-                        isolation_lower_offset=_number(_attribute(spectrum, "isolation_lower_offset")),
-                        isolation_upper_offset=_number(_attribute(spectrum, "isolation_upper_offset")),
+                        isolation_target_mz=_number(_precursor_attribute(spectrum, "isolation_target_mz", "target_mz")),
+                        isolation_lower_offset=lower_offset,
+                        isolation_upper_offset=upper_offset,
                         dia="dia" in (_string(_attribute(spectrum, "acquisition_mode")) or "").lower(),
                     )
                 )
@@ -119,12 +126,19 @@ class OpenMassSpecProvider:
 def _attribute(value: object, *names: str) -> Any:
     for name in names:
         try:
-            result = getattr(value, name)
+            result = value.get(name) if isinstance(value, Mapping) else getattr(value, name)
         except (AttributeError, RuntimeError):
             continue
         if result is not None:
             return result
     return None
+
+
+def _precursor_attribute(spectrum: object, *names: str) -> Any:
+    value = _attribute(spectrum, *names)
+    if value is not None:
+        return value
+    return _attribute(_attribute(spectrum, "precursor"), *names)
 
 
 def _mz_stats(values: Any) -> tuple[int | None, float | None, float | None]:

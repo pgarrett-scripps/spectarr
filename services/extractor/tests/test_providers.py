@@ -4,6 +4,8 @@ import gzip
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from spectarr_extractor.models import BoundedSeries
 from spectarr_extractor.providers import ProviderRegistry
@@ -49,6 +51,22 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.qc_summary["spectrum_count"], 2)
         self.assertEqual(result.qc_summary["peak_count"]["max"], 2.0)
         self.assertEqual(result.qc_summary["mz_range"], {"min": 100.0, "max": 200.0})
+
+    def test_gzip_peak_lists_and_content_addressed_objects(self) -> None:
+        fixtures = [
+            ("mgf", MgfProvider(), b"BEGIN IONS\nPEPMASS=500\n100 50\nEND IONS\n"),
+            ("ms2", Ms2Provider(), b"S\t1\t1\t500\n100 50\n"),
+        ]
+        for extension, provider, content in fixtures:
+            for filename in (f"sample.{extension}.gz", "content-addressed-object"):
+                with self.subTest(filename=filename, format=extension):
+                    path = self.root / filename
+                    path.write_bytes(gzip.compress(content))
+                    declared = extension.upper() if filename == "content-addressed-object" else None
+                    self.assertTrue(provider.supports(path, declared))
+                    result = provider.extract(path, declared)
+                    self.assertEqual(result.qc_summary["spectrum_count"], 1)
+                    self.assertEqual(result.qc_summary["peak_count"]["max"], 1)
 
     def test_mzml_cv_metadata(self) -> None:
         path = self.root / "sample.mzML"
@@ -96,10 +114,10 @@ class ProviderTests(unittest.TestCase):
     def test_content_addressed_gzip_is_detected_by_magic_bytes(self) -> None:
         path = self.root / "sha256-object-without-extension"
         document = (
-            '<?xml version="1.0"?><mzML><run><spectrumList count="1">'
-            '<spectrum defaultArrayLength="0"><cvParam accession="MS:1000511" value="1"/>'
-            '</spectrum></spectrumList></run></mzML>'
-        ).encode()
+            b'<?xml version="1.0"?><mzML><run><spectrumList count="1">'
+            b'<spectrum defaultArrayLength="0"><cvParam accession="MS:1000511" value="1"/>'
+            b'</spectrum></spectrumList></run></mzML>'
+        )
         path.write_bytes(gzip.compress(document))
         result = ProviderRegistry().extract(path, "mzML")
         self.assertEqual(result.qc_summary["spectrum_count"], 1)
@@ -151,6 +169,38 @@ class ProviderTests(unittest.TestCase):
                 return True
 
         self.assertTrue(AvailableOpenMassSpec().supports(self.root / "content-hash", "RAW"))
+
+    def test_openmassspec_preserves_nested_precursor_metadata(self) -> None:
+        precursor = {"selected_mz": 352.515, "target_mz": 352.5, "charge": 3,
+                     "isolation_width": 1.3, "collision_energy": 27.0, "activation": "hcd"}
+        for nested in (precursor, SimpleNamespace(**precursor)):
+            spectrum = SimpleNamespace(ms_level=2, mz=[100.0, 200.0], intensity=[10.0, 30.0],
+                                       retention_time_sec=60.0, precursor=nested)
+            module = SimpleNamespace(iter_spectra=lambda _: iter([spectrum]))
+            observations = []
+            with patch.object(OpenMassSpecProvider, "_module", return_value=module):
+                OpenMassSpecProvider().extract(self.root / "sample.raw", on_spectrum=observations.append)
+            value = observations[0]
+            self.assertEqual(value.precursor_mz, 352.515)
+            self.assertEqual(value.precursor_charge, 3)
+            self.assertEqual(value.isolation_target_mz, 352.5)
+            self.assertEqual(value.isolation_lower_offset, 0.65)
+            self.assertEqual(value.isolation_upper_offset, 0.65)
+            self.assertEqual(value.collision_energy, 27.0)
+            self.assertEqual(value.activation_type, "hcd")
+
+    def test_openmassspec_preserves_flat_precursors_and_missing_ms1_precursors(self) -> None:
+        spectra = [SimpleNamespace(ms_level=1, mz=[], intensity=[]),
+                   SimpleNamespace(ms_level=2, mz=[], intensity=[], precursor_mz=500.2,
+                                   precursor_charge=2, precursor={"selected_mz": 999.0, "charge": 4})]
+        observations = []
+        module = SimpleNamespace(iter_spectra=lambda _: iter(spectra))
+        with patch.object(OpenMassSpecProvider, "_module", return_value=module):
+            OpenMassSpecProvider().extract(self.root / "sample.raw", on_spectrum=observations.append)
+        self.assertIsNone(observations[0].precursor_mz)
+        self.assertIsNone(observations[0].isolation_lower_offset)
+        self.assertEqual(observations[1].precursor_mz, 500.2)
+        self.assertEqual(observations[1].precursor_charge, 2)
 
     def test_openmassspec_selects_vendor_directory_bundle(self) -> None:
         class AvailableOpenMassSpec(OpenMassSpecProvider):

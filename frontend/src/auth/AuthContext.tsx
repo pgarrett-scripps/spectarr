@@ -75,6 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (mode === 'local') return
       try {
         await api.logout()
+      } catch {
+        // Local sign-out still completes when the server is unavailable.
       } finally {
         clearAccessToken()
         setUser(null)

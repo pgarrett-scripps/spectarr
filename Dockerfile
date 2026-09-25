@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-ARG SPECTARR_NODE_IMAGE=node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
-ARG SPECTARR_DOCKER_CLI_IMAGE=docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-ARG SPECTARR_DOTNET_RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:9d94ecf60a21c6e7a784cf0761fbd4a8391646617a0ff2f39621443d580cc2c3
-ARG SPECTARR_PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
+ARG SPECTARR_NODE_IMAGE=node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80
+ARG SPECTARR_DOCKER_CLI_IMAGE=docker:29-cli@sha256:018edbc908e08fcc9dbf029c812c34251e9b4719e6f71ca0e5eae2a987d014ca
+ARG SPECTARR_DOTNET_RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:10.0@sha256:ff17a18b639a0327e52c7c296fa2e1abe6e03eb61d8121a8ef67cc6aa430a27e
+ARG SPECTARR_PYTHON_IMAGE=python:3.14-slim-trixie@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
 
 FROM ${SPECTARR_NODE_IMAGE} AS dashboard-build
 WORKDIR /build/frontend
@@ -48,7 +48,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-      ca-certificates libgcc-s1 libicu72 libssl3 libstdc++6 tzdata zlib1g \
+      ca-certificates libgcc-s1 libicu76 libssl3t64 libstdc++6 tzdata zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
@@ -67,6 +67,7 @@ COPY services/mcp /app/services/mcp
 COPY services/webhooks /app/services/webhooks
 COPY constraints.txt /app/constraints.txt
 
+RUN python -m pip install --no-cache-dir --upgrade pip==26.2.1
 RUN python -m pip install --no-cache-dir --constraint /app/constraints.txt \
       /opt/msconvert-cli \
       /opt/mzmlpy \
@@ -78,6 +79,9 @@ RUN python -m pip install --no-cache-dir --constraint /app/constraints.txt \
       /app/services/webhooks
 RUN test "$SPECTARR_INSTALL_OPENMASSSPEC" != "true" \
     || python -m pip install --no-cache-dir --constraint /app/constraints.txt '/app/services/extractor[openmassspec]'
+RUN python -m pip check \
+    && python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python*/ensurepip
 RUN groupadd --system --gid 1000 spectarr \
     && useradd --system --uid 1000 --gid spectarr --home-dir /app spectarr \
     && mkdir -p /data/storage /data/scratch /imports \

@@ -7,7 +7,7 @@ test('creates and verifies a managed backup with an isolated restore check', asy
   await page.getByLabel('Username').fill(process.env.SPECTARR_E2E_USERNAME ?? 'release-admin')
   await page.getByLabel('Password').fill(process.env.SPECTARR_E2E_PASSWORD ?? 'release-rehearsal-admin-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Spectarr overview' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MassSpec overview' })).toBeVisible()
   await page.goto('/settings?section=backups')
   await expect(page.getByRole('heading', { name: 'Backup status' })).toBeVisible()
   await page.getByLabel('Keep newest backups').fill('2')

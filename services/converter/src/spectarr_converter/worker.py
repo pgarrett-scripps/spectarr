@@ -23,6 +23,12 @@ from .models import ConversionRequest, ConversionResult
 from .service import ConversionService, PINNED_DEFAULT_IMAGE
 
 
+class WorkerApiError(RuntimeError):
+    def __init__(self, status: int, message: str) -> None:
+        self.status = status
+        super().__init__(message)
+
+
 class WorkerApi(Protocol):
     def get(self, path: str, query: dict[str, Any] | None = None) -> Any: ...
     def post(self, path: str, payload: dict[str, Any] | None = None) -> Any: ...
@@ -78,9 +84,9 @@ class HttpWorkerApi:
                 content = response.read()
         except error.HTTPError as api_error:
             detail = api_error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Spectarr API returned {api_error.code}: {detail}") from api_error
+            raise WorkerApiError(api_error.code, f"Spectarr API returned {api_error.code}: {detail}") from api_error
         except error.URLError as api_error:
-            raise RuntimeError(f"Spectarr API is unavailable: {api_error.reason}") from api_error
+            raise WorkerApiError(0, f"Spectarr API is unavailable: {api_error.reason}") from api_error
         return json.loads(content) if content else None
 
     def upload_artifact(self, path: str, file_path: Path, fields: dict[str, str]) -> Any:
@@ -317,7 +323,8 @@ class ApiConversionWorker:
             try:
                 handled = self.process_one()
             except RuntimeError as worker_error:
-                if "Spectarr API is unavailable" not in str(worker_error):
+                transient = isinstance(worker_error, WorkerApiError) and worker_error.status in {0, 429, 502, 503, 504}
+                if not transient and "Spectarr API is unavailable" not in str(worker_error):
                     raise
                 consecutive_api_errors += 1
                 if consecutive_api_errors == 1 or consecutive_api_errors % 10 == 0:

@@ -1,6 +1,6 @@
 """Spectarr metadata extraction service."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from .models import ExtractionResult, SpectrumObservation
 from .providers import ProviderRegistry

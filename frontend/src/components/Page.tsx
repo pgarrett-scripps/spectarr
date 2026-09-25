@@ -1,4 +1,4 @@
-import { AlertCircle, LoaderCircle, Plus, RotateCw } from 'lucide-react'
+import { AlertCircle, LoaderCircle, RotateCw } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string, title: string, description: string, actions?: ReactNode }) {
@@ -17,7 +17,7 @@ export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?:
 export function ApiErrorBanner({ message, onRetry }: { message: string, onRetry?: () => void }) {
   return (
     <div className="message-banner" role="alert">
-      <div><AlertCircle size={17} /><span><strong>Live data unavailable</strong> {message}</span></div>
+      <div><AlertCircle size={17} /><span><strong>Could not load data.</strong> {message}</span></div>
       {onRetry && <button className="button button-ghost button-small" onClick={onRetry}><RotateCw size={14} /> Retry</button>}
     </div>
   )
@@ -40,14 +40,13 @@ export function Panel({ title, subtitle, actions, children, className = '' }: { 
 export function EmptyState({ title, description, action = 'Add data', onAction }: { title: string, description: string, action?: string, onAction?: () => void }) {
   return (
     <div className="empty-state">
-      <div className="empty-icon"><Plus size={22} /></div>
       <h3>{title}</h3>
       <p>{description}</p>
-      {onAction && <button className="button button-primary" onClick={onAction}><Plus size={16} />{action}</button>}
+      {onAction && <button className="button button-primary" onClick={onAction}>{action}</button>}
     </div>
   )
 }
 
-export function LoadingState({ label = 'Loading live data' }: { label?: string }) {
+export function LoadingState({ label = 'Loading data' }: { label?: string }) {
   return <div className="content-loading" role="status"><LoaderCircle className="spin" size={20} /><span>{label}</span></div>
 }

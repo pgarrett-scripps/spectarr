@@ -71,24 +71,24 @@ COMMON_TEMPLATES = [
 
 def parse_sdrf(content: bytes) -> tuple[list[str], list[list[str]]]:
     if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "SDRF files are limited to 50 MiB")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "SDRF files are limited to 50 MiB")
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "SDRF must be UTF-8 text") from error
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "SDRF must be UTF-8 text") from error
     reader = csv.reader(io.StringIO(text, newline=""), delimiter="\t")
     records = [[cell.strip() for cell in record] for record in reader]
     records = [record for record in records if any(record)]
     if not records:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "SDRF is empty")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "SDRF is empty")
     columns = records[0]
     if not all(columns):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "SDRF column names cannot be empty")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "SDRF column names cannot be empty")
     rows = records[1:]
     for index, row in enumerate(rows, start=2):
         if len(row) != len(columns):
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"SDRF row {index} has {len(row)} cells but {len(columns)} columns",
             )
     return columns, rows

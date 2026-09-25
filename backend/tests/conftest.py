@@ -15,6 +15,7 @@ os.environ["SPECTARR_DATABASE_URL"] = f"sqlite:///{TEST_ROOT / 'test.db'}"
 os.environ["SPECTARR_STORAGE_ROOT"] = str(TEST_ROOT / "storage")
 os.environ["SPECTARR_IMPORT_ROOTS"] = f'["{IMPORT_ROOT}"]'
 os.environ["SPECTARR_AUTH_ENABLED"] = "false"
+os.environ["SPECTARR_TRUSTED_HOSTS"] = '["test", "testserver", "localhost"]'
 
 from spectarr.database import Base, engine  # noqa: E402
 from spectarr.main import app  # noqa: E402

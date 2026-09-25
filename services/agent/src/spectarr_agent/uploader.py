@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import os
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO, Callable, Iterator
+from typing import BinaryIO
 
 from .api import ApiError, SpectarrAgentApi
 from .discovery import AcquisitionChanged, AcquisitionScanner, Candidate
+from .readonly import open_source
 from .state import AgentState, QueueItem
 
 
@@ -152,7 +153,7 @@ class ResumableUploader:
             snapshot = self.scanner.snapshot(candidate)
         except OSError as error:
             raise SourceUnavailable(str(error)) from error
-        if snapshot.blocked or snapshot.signature != item.signature:
+        if snapshot.blocked or not self.scanner.published(candidate) or snapshot.signature != item.signature:
             raise AcquisitionChanged("Acquisition changed after it entered the upload queue")
 
     @staticmethod
@@ -181,12 +182,8 @@ def safe_bundle_file(root: Path, relative: str) -> Path:
 
 @contextmanager
 def open_readonly(path: Path) -> Iterator[BinaryIO]:
-    if path.is_symlink():
-        raise SourceUnavailable("Acquisition path is a symbolic link")
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
+        with open_source(path) as stream:
+            yield stream
     except OSError as error:
         raise SourceUnavailable(str(error)) from error
-    with os.fdopen(descriptor, "rb") as stream:
-        yield stream

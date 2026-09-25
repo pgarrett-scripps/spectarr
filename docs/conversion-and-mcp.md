@@ -1,8 +1,10 @@
 # Conversion and MCP integration
 
+Set `SPECTARR_MCP_PUBLIC_URL` to the endpoint clients should use when publishing MCP on a custom port or behind a reverse proxy. For example, `http://localhost:8341/mcp` or `https://spectarr.example/agent/mcp`. The API exposes this nonsecret value in system health, and the dashboard displays and copies it. Without an explicit value, the dashboard labels its same-host port 8281 suggestion as the default endpoint.
+
 ## Conversion ownership
 
-Spectarr owns job state, artifact records, storage promotion, retention, and provenance. The converter service owns one ProteoWizard invocation and returns a structured result. `msconvert-cli` remains the low-level Docker command builder.
+MassSpec owns job state, artifact records, storage promotion, retention, and provenance. The converter service owns one ProteoWizard invocation and returns a structured result. `msconvert-cli` remains the low-level Docker command builder.
 
 The backend should execute conversion jobs in this order:
 
@@ -27,7 +29,7 @@ Recipes are versioned because filter changes can alter scientific results. The s
 
 ## msconvert-cli library contract
 
-Spectarr requires `msconvert-cli` 1.2 or newer. That release provides:
+MassSpec requires `msconvert-cli` 1.2 or newer. That release provides:
 
 - A public structured result containing outputs, checksums, logs, duration, command metadata, and tool version
 - A public command builder and single-job library method
@@ -37,9 +39,9 @@ Spectarr requires `msconvert-cli` 1.2 or newer. That release provides:
 - Output validation hooks
 - Cancellation events and phase progress callbacks
 
-Spectarr adds format-specific scientific validation before promoting any output into managed storage. The upstream package owns Docker command construction and process metadata. This keeps Spectarr off private package methods and makes the integration independently testable.
+MassSpec adds format-specific scientific validation before promoting any output into managed storage. The upstream package owns Docker command construction and process metadata. This keeps MassSpec off private package methods and makes the integration independently testable.
 
-Spectarr should keep one layer of concurrency. The job worker schedules individual conversion jobs, and msconvert-cli should run one acquisition per call.
+MassSpec should keep one layer of concurrency. The job worker schedules individual conversion jobs, and msconvert-cli should run one acquisition per call.
 
 ## MCP boundary
 

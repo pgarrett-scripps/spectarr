@@ -6,14 +6,13 @@ import logging
 import socket
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from .api import ApiError, SpectarrAgentApi
 from .config import AgentConfig
 from .discovery import AcquisitionChanged, AcquisitionScanner, Candidate
 from .state import AgentState
 from .uploader import ResumableUploader, SourceUnavailable
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +41,8 @@ class AcquisitionAgent:
         now = self.clock()
         queued = 0
         candidates = self.scanner.discover()
+        for error in self.scanner.errors:
+            LOGGER.warning("Discovery incomplete: %s", error)
         for candidate in candidates:
             try:
                 snapshot = self.scanner.snapshot(candidate)
@@ -55,7 +56,7 @@ class AcquisitionAgent:
                 self.config.stability_seconds,
                 snapshot.reason if snapshot.blocked else None,
             )
-            if snapshot.blocked:
+            if snapshot.blocked or not self.scanner.published(candidate):
                 LOGGER.debug("Waiting for %s: %s", candidate.path.name, snapshot.reason)
                 continue
             if not stable or not self.state.needs_hashing(candidate.path, snapshot.signature):
@@ -141,6 +142,9 @@ class AcquisitionAgent:
             LOGGER.warning("Heartbeat failed: %s", error)
 
     def run_once(self) -> None:
+        if self.config.mode == "catalog":
+            self.catalog_once()
+            return
         self.scan_once()
         while self.upload_one():
             pass
@@ -150,15 +154,30 @@ class AcquisitionAgent:
         LOGGER.info("Watching %d acquisition path(s)", len(self.config.watch_paths))
         while stop_event is None or not stop_event.is_set():
             started = time.monotonic()
-            self.scan_once()
-            self.heartbeat_if_due()
-            self.upload_one()
+            if self.config.mode == "catalog":
+                self.catalog_once()
+            else:
+                self.scan_once()
+                self.heartbeat_if_due()
+                self.upload_one()
             elapsed = time.monotonic() - started
             delay = max(0.1, self.config.poll_interval_seconds - elapsed)
             if stop_event is not None:
                 stop_event.wait(delay)
             else:
                 self.sleep(delay)
+
+    def catalog_once(self) -> None:
+        if self.config.dry_run:
+            return
+        from .catalog import CatalogAgent
+
+        try:
+            _, token = self._credentials()
+            self.heartbeat_if_due()
+            CatalogAgent(self.config, self.state, self.api, token).tick()
+        except (ApiError, OSError) as error:
+            LOGGER.warning("Catalog operation deferred: %s", error)
 
     def _credentials(self) -> tuple[str, str]:
         agent_id = self.state.metadata("agent_id")

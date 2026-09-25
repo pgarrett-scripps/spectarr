@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SpectrumExplorer, SpectrumPlot } from './SpectrumExplorer'
 import type { Artifact, Job, SpectrumCatalogPage, SpxtacularSpectrum } from '../types'
@@ -71,6 +71,30 @@ const queuedCatalogJob: Job = {
 afterEach(cleanup)
 
 describe('SpectrumExplorer', () => {
+  it('keeps plot coordinates and peak inspection aligned when the viewport narrows', () => {
+    let resized: ResizeObserverCallback | undefined
+    const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', vi.fn(function (callback: ResizeObserverCallback) {
+      resized = callback
+      return { observe: vi.fn(), disconnect }
+    }))
+    try {
+      const { unmount } = render(<SpectrumPlot spectrum={spectrum} />)
+      const chart = screen.getByRole('img', { name: 'centroid spectrum' })
+      const bounds = { x: 0, y: 0, width: 320, height: 230, top: 0, right: 320, bottom: 230, left: 0, toJSON: () => ({}) }
+      vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue(bounds)
+      act(() => resized?.([{ contentRect: bounds } as ResizeObserverEntry], {} as ResizeObserver))
+      expect(chart).toHaveAttribute('viewBox', '0 0 320 230')
+      expect(chart.querySelectorAll('.spectrum-sticks line')).toHaveLength(3)
+      fireEvent.mouseMove(chart, { clientX: 180 })
+      expect(screen.getByText('m/z 150.50000')).toBeVisible()
+      unmount()
+      expect(disconnect).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('loads an MGF MS2 spectrum and renders its scientific metadata', async () => {
     const loader = vi.fn().mockResolvedValue(spectrum)
     render(<SpectrumExplorer artifacts={[artifact]} loadSpectrum={loader} loadQuery={vi.fn().mockResolvedValue(catalog)} />)
@@ -79,6 +103,12 @@ describe('SpectrumExplorer', () => {
     expect(await screen.findByText('scan=42')).toBeInTheDocument()
     expect(screen.getByText('500.2500 (2+)')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'centroid spectrum' })).toBeInTheDocument()
+  })
+
+  it('renders schema 2 precursor metadata', async () => {
+    const current: SpxtacularSpectrum = { ...spectrum, schema_version: 2, metadata: { ...spectrum.metadata, precursors: [{ precursor_mz: 612.3456, intensity: 0, charge: 3, im: 1.1, im_type: 'ook0', is_monoisotopic: null }] } }
+    render(<SpectrumExplorer artifacts={[artifact]} loadSpectrum={vi.fn().mockResolvedValue(current)} loadQuery={vi.fn().mockResolvedValue(catalog)} />)
+    expect(await screen.findByText('612.3456 (3+)')).toBeInTheDocument()
   })
 
   it('loads the next zero-based spectrum position', async () => {

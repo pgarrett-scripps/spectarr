@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronLeft, ChevronRight, Filter, LoaderCircle, RotateCcw, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type { Artifact, Job, SpectrumCatalogPage, SpectrumQueryRequest, SpectrumSummary, SpxtacularSpectrum } from '../types'
@@ -38,7 +38,7 @@ interface FilterDraft {
 const supportedFormats = new Set(['RAW', 'mzML', 'MGF', 'MS2', 'MSP'])
 const catalogPageSize = 50
 
-export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, chromatogram = [], loadSpectrum = api.spectrum, loadCatalog, loadQuery, loadCatalogSpectrum = api.catalogSpectrum, buildCatalog = api.extractArtifact, loadJob = api.job }: { artifacts: Artifact[], preferredMsLevel?: 1 | 2, spectrumCounts?: Record<string, number>, chromatogram?: Array<{ time: number, intensity: number }>, loadSpectrum?: SpectrumLoader, loadCatalog?: SpectrumCatalogLoader, loadQuery?: SpectrumQueryLoader, loadCatalogSpectrum?: CatalogSpectrumLoader, buildCatalog?: CatalogBuilder, loadJob?: JobLoader }) {
+export function SpectrumExplorer({ canBuild = true, artifacts, preferredMsLevel, spectrumCounts, chromatogram = [], loadSpectrum = api.spectrum, loadCatalog, loadQuery, loadCatalogSpectrum = api.catalogSpectrum, buildCatalog = api.extractArtifact, loadJob = api.job }: { canBuild?: boolean, artifacts: Artifact[], preferredMsLevel?: 1 | 2, spectrumCounts?: Record<string, number>, chromatogram?: Array<{ time: number, intensity: number }>, loadSpectrum?: SpectrumLoader, loadCatalog?: SpectrumCatalogLoader, loadQuery?: SpectrumQueryLoader, loadCatalogSpectrum?: CatalogSpectrumLoader, buildCatalog?: CatalogBuilder, loadJob?: JobLoader }) {
   const candidates = useMemo(
     () => artifacts.filter(artifact => artifact.status === 'verified' && supportedFormats.has(artifact.format)),
     [artifacts]
@@ -150,7 +150,7 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
           setRefresh(value => value + 1)
           return
         }
-        if (job.status === 'failed') {
+        if (job.status === 'failed' || job.status === 'cancelled') {
           setCatalogAction('failed')
           setError(job.detail || 'Catalog extraction failed')
           return
@@ -237,9 +237,9 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
     try {
       const job = await buildCatalog(selectedArtifact.id, true)
       setCatalogJob(job)
-      setCatalogAction(job.status === 'running' ? 'running' : job.status === 'complete' ? 'complete' : job.status === 'failed' ? 'failed' : 'queued')
+      setCatalogAction(job.status === 'running' ? 'running' : job.status === 'complete' ? 'complete' : ['failed', 'cancelled'].includes(job.status) ? 'failed' : 'queued')
       if (job.status === 'complete') setRefresh(value => value + 1)
-      if (job.status === 'failed') setError(job.detail || 'Catalog extraction failed')
+      if (job.status === 'failed' || job.status === 'cancelled') setError(job.detail || 'Catalog extraction failed')
     } catch (reason) {
       setCatalogAction('failed')
       setError(reason instanceof Error ? reason.message : 'Could not queue catalog extraction')
@@ -258,7 +258,7 @@ export function SpectrumExplorer({ artifacts, preferredMsLevel, spectrumCounts, 
     </div>
     {error && <div className="spectrum-error" role="alert">{error}</div>}
     <SpectrumFilters filters={filters} advancedOpen={advancedOpen} ms1Unavailable={selectedArtifact.format === 'MGF' || selectedArtifact.format === 'MS2' || selectedArtifact.format === 'MSP' || spectrumCounts?.['1'] === 0} ms2Unavailable={spectrumCounts?.['2'] === 0} onChange={changeFilters} onClear={() => changeFilters(initialFilters(selectedArtifact, preferredMsLevel))} />
-    {catalogMode === 'fallback' && <div className="spectrum-catalog-notice"><span>{catalogActionMessage(catalogAction, catalogJob)}</span><button type="button" disabled={['queuing', 'queued', 'running', 'complete'].includes(catalogAction)} onClick={() => void rebuildCatalog()}>{catalogActionButton(catalogAction)}</button></div>}
+    {catalogMode === 'fallback' && <div className="spectrum-catalog-notice"><span>{catalogActionMessage(catalogAction, catalogJob)}</span><button type="button" disabled={!canBuild || ['queuing', 'queued', 'running', 'complete'].includes(catalogAction)} onClick={() => void rebuildCatalog()}>{catalogActionButton(catalogAction)}</button></div>}
     <SpectrumTable page={catalog} loading={catalogLoading} selected={summary} sort={sort} direction={direction} onSort={updateSort} onSelect={chooseSummary} onPreviousPage={previousPage} onNextPage={nextPage} canPrevious={cursorHistory.length > 0} />
     <div className="spectrum-selection-control">
       <button type="button" aria-label="Previous spectrum" disabled={selectedRowIndex <= 0 || loading} onClick={() => stepSpectrum(-1)}><ChevronLeft size={15} /></button>
@@ -438,8 +438,9 @@ function spectrumSelectionTitle(spectrum: SpxtacularSpectrum | null, index: numb
 
 function spectrumSelectionSubtitle(spectrum: SpxtacularSpectrum | null): string {
   const precursor = spectrum?.metadata.precursors?.[0]
-  if (!precursor) return spectrum?.metadata.native_id ?? 'No precursor information'
-  return `Precursor ${precursor.mz.toFixed(4)} m/z${precursor.charge ? ` · ${formatCharge(precursor.charge, spectrum?.metadata.polarity)}` : ''}`
+  const precursorMz = precursor?.precursor_mz ?? precursor?.mz
+  if (!precursor || precursorMz == null) return spectrum?.metadata.native_id ?? 'No precursor information'
+  return `Precursor ${precursorMz.toFixed(4)} m/z${precursor.charge ? ` · ${formatCharge(precursor.charge, spectrum?.metadata.polarity)}` : ''}`
 }
 
 function catalogActionMessage(action: 'idle' | 'queuing' | 'queued' | 'running' | 'complete' | 'failed', job: Job | null): string {
@@ -483,10 +484,22 @@ function defaultMsLevel(artifact?: Artifact, preferredMsLevel?: 1 | 2): 1 | 2 {
 
 export function SpectrumPlot({ spectrum }: { spectrum: SpxtacularSpectrum }) {
   const [hovered, setHovered] = useState<PlotPoint | null>(null)
+  const svg = useRef<SVGSVGElement>(null)
+  const [{ width, height }, setDimensions] = useState({ width: 820, height: 270 })
   const points = useMemo(() => plotPoints(spectrum), [spectrum])
+  const hasPeaks = points.length > 0
+  useEffect(() => {
+    if (!svg.current || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const bounds = entries[0]?.contentRect
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return
+      const next = { width: Math.max(240, bounds.width), height: Math.max(200, bounds.height) }
+      setDimensions(current => current.width === next.width && current.height === next.height ? current : next)
+    })
+    observer.observe(svg.current)
+    return () => observer.disconnect()
+  }, [hasPeaks])
   if (!points.length) return <div className="settings-placeholder">This spectrum contains no peaks.</div>
-  const width = 820
-  const height = 270
   const left = 54
   const right = 16
   const top = 18
@@ -510,7 +523,7 @@ export function SpectrumPlot({ spectrum }: { spectrum: SpxtacularSpectrum }) {
   }
 
   return <div className="spectrum-chart-wrap">
-    <svg className="spectrum-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${spectrum.metadata.spectrum_type ?? 'mass'} spectrum`} onMouseMove={hover} onMouseLeave={() => setHovered(null)}>
+    <svg ref={svg} className="spectrum-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${spectrum.metadata.spectrum_type ?? 'mass'} spectrum`} onMouseMove={hover} onMouseLeave={() => setHovered(null)}>
       <g className="spectrum-grid">{[0.25, 0.5, 0.75, 1].map(ratio => <line key={ratio} x1={left} x2={width - right} y1={baseline - ratio * plotHeight} y2={baseline - ratio * plotHeight} />)}</g>
       <line className="spectrum-axis-line" x1={left} x2={width - right} y1={baseline} y2={baseline} />
       {profile
@@ -590,6 +603,7 @@ function nearestPoint(points: PlotPoint[], mz: number): PlotPoint {
 function SpectrumFacts({ spectrum }: { spectrum: SpxtacularSpectrum }) {
   const metadata = spectrum.metadata
   const precursor = metadata.precursors?.[0]
+  const precursorMz = precursor?.precursor_mz ?? precursor?.mz
   const rt = metadata.rt === null || metadata.rt === undefined ? 'Unknown' : `${(metadata.rt / 60).toFixed(2)} min`
   const facts = [
     ['Retention time', rt],
@@ -597,7 +611,7 @@ function SpectrumFacts({ spectrum }: { spectrum: SpxtacularSpectrum }) {
     ['MS level', metadata.ms_level ? `MS${metadata.ms_level}` : 'Unknown'],
     ['Representation', metadata.spectrum_type ?? 'Unknown'],
     ['Peaks', spectrum.arrays.mz.length.toLocaleString()],
-    ['Precursor', precursor ? `${precursor.mz.toFixed(4)}${precursor.charge ? ` (${formatCharge(precursor.charge, metadata.polarity)})` : ''}${metadata.precursors && metadata.precursors.length > 1 ? ` +${metadata.precursors.length - 1}` : ''}` : 'None'],
+    ['Precursor', precursor && precursorMz != null ? `${precursorMz.toFixed(4)}${precursor.charge ? ` (${formatCharge(precursor.charge, metadata.polarity)})` : ''}${metadata.precursors && metadata.precursors.length > 1 ? ` +${metadata.precursors.length - 1}` : ''}` : 'None'],
     ['Native ID', metadata.native_id ?? 'Unknown'],
     metadata.polarity ? ['Polarity', metadata.polarity] : null,
     metadata.analyzer ? ['Analyzer', metadata.analyzer] : null,

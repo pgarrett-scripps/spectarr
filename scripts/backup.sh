@@ -25,7 +25,8 @@ then
 fi
 
 mkdir -p "$backup_dir"
-"${compose[@]}" exec -T spectarr spectarr-backup create-set /data > "$backup_dir/snapshot.tar.partial"
+service_owner=$("${compose[@]}" exec -T spectarr sh -c 'printf "%s:%s" "${SPECTARR_UID:-1000}" "${SPECTARR_GID:-1000}"')
+"${compose[@]}" exec -T --user "$service_owner" spectarr spectarr-backup create-set /data > "$backup_dir/snapshot.tar.partial"
 mv "$backup_dir/snapshot.tar.partial" "$backup_dir/snapshot.tar"
 image=$("${compose[@]}" images -q spectarr)
 docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' "$image" > "$backup_dir/IMAGE"

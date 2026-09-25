@@ -29,7 +29,7 @@ export function ManageExperimentsDialog({ projectId, onClose, onDeleted }: {
   }
 
   const remove = () => {
-    if (!selected || confirmation !== selected.name) return
+    if (loading || !preview || !selected || confirmation !== selected.name) return
     setLoading(true)
     setError(null)
     void api.deleteExperiment(selected.id, confirmation).then(() => {
@@ -44,7 +44,7 @@ export function ManageExperimentsDialog({ projectId, onClose, onDeleted }: {
   }
 
   return <div className="modal-backdrop" role="presentation"><section className="modal-card manage-experiments-modal" role="dialog" aria-modal="true" aria-labelledby="manage-experiments-title">
-    <div className="modal-header"><div><h2 id="manage-experiments-title">Manage experiments</h2><p>Delete an experiment and all source and generated files it owns.</p></div><button className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
+    <div className="modal-header"><div><h2 id="manage-experiments-title">Manage experiments</h2><p>Delete an experiment and all source and generated files it owns.</p></div><button className="icon-button" aria-label="Close" disabled={loading} onClick={onClose}>×</button></div>
     {!selected ? <div className="experiment-management-list">
       {experiments.loading ? <span className="muted-cell">Loading experiments</span> : experiments.data.map(experiment => <div key={experiment.id}>
         <span><strong>{experiment.name}</strong><small>{experiment.intakeAgentId ? 'Managed instrument inbox' : experiment.description || 'No description'}</small></span>
@@ -57,7 +57,7 @@ export function ManageExperimentsDialog({ projectId, onClose, onDeleted }: {
       {loading && !preview ? <span><LoaderCircle className="spin" size={15} /> Inspecting experiment</span> : preview && <p>This permanently removes {preview.runCount} runs, {preview.sourceCount} source files, {preview.derivedCount} generated files, and {formatBytes(preview.logicalBytes)} of logical data.</p>}
       <label><span>Type <strong>{selected.name}</strong> to confirm</span><input value={confirmation} onChange={event => setConfirmation(event.target.value)} autoFocus /></label>
       {error && <div className="modal-error" role="alert">{error}</div>}
-      <div className="modal-actions"><button className="button button-secondary" onClick={() => setSelected(null)}>Back</button><button className="button button-danger" disabled={loading || !preview || confirmation !== selected.name} onClick={remove}>{loading ? 'Deleting' : 'Delete experiment'}</button></div>
+      <div className="modal-actions"><button className="button button-secondary" disabled={loading} onClick={() => setSelected(null)}>Back</button><button className="button button-danger" disabled={loading || !preview || confirmation !== selected.name} onClick={remove}>{loading ? 'Deleting' : 'Delete experiment'}</button></div>
     </div>}
     {!selected && (error || experiments.error) && <div className="modal-error" role="alert">{error ?? experiments.error}</div>}
     {!selected && <div className="modal-actions"><button className="button button-secondary" onClick={onClose}>Close</button></div>}

@@ -157,6 +157,10 @@ The default two-minute stability window is conservative. Increase it for instrum
 *.download  *.crdownload  *.inprogress  ~*  .~lock.*
 ```
 
+Inactivity does not prove acquisition completion. A file paused beyond the window with no recognized marker can be queued while its producer still intends to write more data. Increasing the window reduces that risk but cannot eliminate it. Validate the instrument's actual writing and marker behavior before unattended use. When an export workflow supports it, publish completed files from a staging location into the watched location only after the producer has finished. The agent itself never renames instrument files.
+
+The [simulated instrument rehearsal](../../docs/simulated-instruments.md) tests real agent processes against an isolated server. It covers growing files, marker-protected pauses, lost chunk responses, an offline restart, deduplication, native bundles and downstream spectrum reading. An explicit dry-run control reproduces the unmarked-pause limitation without uploading incomplete data.
+
 ## API contract
 
 The agent uses these versioned endpoints:
@@ -180,3 +184,9 @@ python -m pytest
 ```
 
 The suite covers configuration, ignored patterns, stability windows, symlink rejection, immutable hashing, SQLite migration and recovery, occurrence identity, checksum storage deduplication, credential rotation, registration, exact HTTP headers, file resume, native bundle resume, offline retry, heartbeat, and dry-run behavior.
+
+## Catalog existing archives without uploading
+
+Use `mode = "catalog"` with a separate agent identity and local state database. Register matching folders in the project's **External files** tab. The agent reads only its locally configured roots and waits for explicit scan, verification, or selected-import requests.
+
+The initial qualified environment is Linux local storage. See the [external inventory guide](../../docs/external-inventory.md) for setup, root identity, availability, and the optional producer publication marker. Normal upload mode remains the default.

@@ -1,0 +1,105 @@
+{
+  "status": "deployed_locally",
+  "image": "sha256:e55d7f1cb1577f76a536f94879a040663124cde3d3b34c50ba4ab873331a66cf",
+  "test_counts": {
+    "backend": 215,
+    "frontend": 131,
+    "services": 160,
+    "browser": 10
+  },
+  "backup": "storage/upgrade-backups/latest-20260925/spectarr-20260925T211600Z",
+  "source_checkpoint": "storage/local-integration-snapshots/latest-2026-09-25",
+  "live_verification": {
+    "status": "passed",
+    "image": "sha256:e55d7f1cb1577f76a536f94879a040663124cde3d3b34c50ba4ab873331a66cf",
+    "runs": 20,
+    "artifacts": 44,
+    "verified_files": 45,
+    "health": {
+      "mcp_public_url": null,
+      "status": "ok",
+      "database": "ok",
+      "storage": "ok",
+      "version": "0.3.0"
+    },
+    "ports": {
+      "8000/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "3280"
+        }
+      ],
+      "8001/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "8281"
+        }
+      ]
+    },
+    "security_options": [
+      "no-new-privileges:true"
+    ],
+    "dropped_capabilities": [
+      "CAP_NET_RAW"
+    ],
+    "converter_image": "proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:skyline_26.1.0.266-578b175@sha256:448a833eb92eac2ca731f2461c046963c0c2afafb3550b4dfb6fc3914cec7b0e"
+  },
+  "main_image_audit": {
+    "image": "sha256:e55d7f1cb1577f76a536f94879a040663124cde3d3b34c50ba4ab873331a66cf",
+    "findings_by_severity": {
+      "LOW": 57,
+      "HIGH": 44,
+      "MEDIUM": 53,
+      "UNKNOWN": 2
+    },
+    "fixable_by_severity": {},
+    "python_audit_exit_code": 0,
+    "local_source_packages_excluded_from_pypi_audit": [
+      {
+        "name": "msconvert-cli",
+        "version": "1.2.0"
+      },
+      {
+        "name": "spectarr",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-converter",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-extractor",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-mcp",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-webhook-worker",
+        "version": "0.3.0"
+      }
+    ],
+    "note": "An empty fixable count does not mean the image has no vulnerabilities. Review the complete report."
+  },
+  "vendor_image_audit": {
+    "image_digest": "sha256:448a833eb92eac2ca731f2461c046963c0c2afafb3550b4dfb6fc3914cec7b0e",
+    "findings_by_severity": {
+      "MEDIUM": 53,
+      "HIGH": 42,
+      "LOW": 4,
+      "CRITICAL": 4
+    },
+    "fixable_by_severity": {
+      "MEDIUM": 53,
+      "HIGH": 42,
+      "LOW": 4,
+      "CRITICAL": 4
+    },
+    "os": {
+      "Family": "ubuntu",
+      "Name": "20.04",
+      "EOSL": true
+    }
+  }
+}

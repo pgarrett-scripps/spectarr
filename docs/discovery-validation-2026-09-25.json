@@ -1,0 +1,153 @@
+{
+  "status": "passed_with_environment_limits",
+  "date": "2026-09-25",
+  "image": "sha256:933d3caba340be98301dcf1ecbf515f6495758114d43301f3e6fb12fc79b49b1",
+  "tests": {
+    "backend": 205,
+    "frontend": 130,
+    "agent": 43,
+    "converter": 29,
+    "extractor": 34,
+    "mcp": 31,
+    "webhooks": 17,
+    "browser": 8
+  },
+  "instrument": [
+    {
+      "name": "long unmarked pause characterized without upload",
+      "status": "passed"
+    },
+    {
+      "name": "growing file and lost committed chunk response",
+      "status": "passed",
+      "source_sha256": "ce8f6915bfeb5cdc6539652a972771fad5c72e06084142b31dbfd405b9bb0c6b",
+      "retry_count": 1
+    },
+    {
+      "name": "lock marker, network outage and hard agent restart",
+      "status": "passed",
+      "resumed_offset": 65536,
+      "same_upload_session": true,
+      "source_sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b"
+    },
+    {
+      "name": "distinct acquisitions with identical bytes and repeat polling",
+      "status": "passed",
+      "separate_runs": true,
+      "deduplicated_bytes": true
+    },
+    {
+      "name": "native directory with late members and long paused writes",
+      "status": "passed",
+      "member_count": 2,
+      "bundle_sha256": "d0619f37fe64f73b09123efd90087e0dcf86433c20dc0ac573aabd2dbb3e72d0"
+    },
+    {
+      "name": "server and agent restart preserve run identities",
+      "status": "passed"
+    },
+    {
+      "name": "spectrum extraction and retrieval",
+      "status": "passed",
+      "artifact_id": "1888e24a-9b33-41fc-9a36-0c0e45d2b75c",
+      "spectra": 1200
+    },
+    {
+      "name": "spectrum extraction and retrieval",
+      "status": "passed",
+      "artifact_id": "5a4da223-3033-40b5-8c5f-71f2dcc1838f",
+      "spectra": 10
+    },
+    {
+      "name": "spectrum extraction and retrieval",
+      "status": "passed",
+      "artifact_id": "a6eee3d0-475c-4ba8-b001-097b2bcb003e",
+      "spectra": 247
+    },
+    {
+      "name": "automatic upload through conversion and spectrum reading",
+      "status": "passed",
+      "spectra": 1200
+    }
+  ],
+  "external": [
+    "read-only source mount creates inventory without managed runs",
+    "verified single-file and mixed-case bundle relocations preserve history",
+    "pinned import uses resumable upload and records provenance",
+    "same-size edit with preserved mtime cannot replace a pinned import",
+    "unreadable root preserves inventory without false deletion",
+    "server and agent restart retain external identities"
+  ],
+  "scale": {
+    "entries": 100000,
+    "visited": 100000,
+    "seconds": 19.349949365016073,
+    "peak_memory_kib": 83888,
+    "errors": [],
+    "scope": "metadata traversal only, empty files on local filesystem, no hashing or server persistence"
+  },
+  "mcp": {
+    "status": "passed",
+    "project_id": "6afd42f7-9682-46f0-852f-ca8eb21937d0",
+    "entry_id": "03d2b9ab-3b9e-4aea-9565-fdccf77c7f75",
+    "tasks_unchanged": true,
+    "path_scope": "agent_host"
+  },
+  "timsim": {
+    "version": "0.4.2",
+    "native_counts": {
+      "records": 247,
+      "counts": {
+        "(1, False)": 28,
+        "(2, False)": 218,
+        "(2, True)": 1
+      },
+      "first": [
+        {
+          "native_id": "frame=1 scan=1",
+          "level": 1,
+          "mz": 1995,
+          "intensity": 1995
+        },
+        {
+          "native_id": "frame=2 scan=378-400",
+          "level": 2,
+          "mz": 1177,
+          "intensity": 1177
+        }
+      ]
+    },
+    "fixture": {
+      "reference": {
+        "analysis.tdf": "417878100007967f1eb15e82f2a272f66734dc4308253aa8de87f0d1963480b1",
+        "analysis.tdf_bin": "12ef8459c7bd3ce3bab02928b061ce878213c0b7ff23691739168b536cabb439"
+      },
+      "output": {
+        "analysis.tdf": "5750032a54164b7a8bdc0ce55980153ad343d8fb3f23ceef5d1003ba0ebdae9e",
+        "analysis.tdf_bin": "cbbb5fbc9a8774b53ad1bcec22d6ee59d4d2277502b335826c2069575d27a66d"
+      },
+      "config_sha256": "53b1412bd69e91829e1a0bbea148bfecb13b94be5e8ad1734a8d869b9a87fef5",
+      "synthetic_fasta_sha256": "943d7fae8af614d15b81b2ef6707dcfff318d8e31e5b0862e89fba723208ec57",
+      "note": "Record the environment lock alongside this result. Sampling seed does not promise byte-identical model output."
+    }
+  },
+  "limits": [
+    "Linux local filesystem qualification only",
+    "No Windows or NAS qualification",
+    "No physical instrument completion qualification",
+    "Stability remains a heuristic without a producer publication contract",
+    "Scale result measures metadata traversal, not server persistence or hashing"
+  ],
+  "local_update": {
+    "status": "ok",
+    "runs": 20,
+    "artifacts": 44,
+    "files_verified": 45,
+    "database": "ok"
+  },
+  "backup": {
+    "verified_objects": 36,
+    "migration_restore_test": "passed",
+    "path": "storage/upgrade-backups/external-inventory-20260925/spectarr-20260925T194843Z"
+  }
+}

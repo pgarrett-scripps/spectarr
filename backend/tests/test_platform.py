@@ -773,7 +773,7 @@ async def test_run_with_derived_qc_downgrades_source_extraction_failure_to_warni
     derivative = await client.post(
         f"/api/v1/runs/{hierarchy['run_id']}/artifacts/upload",
         files={"file": ("converted.mzML", b"<mzML/>")},
-        data={"role": "derived"},
+        data={"role": "derived", "parent_artifact_id": source.json()["id"]},
         headers=admin_headers,
     )
     assert derivative.status_code == 201, derivative.text
@@ -950,7 +950,11 @@ def test_alembic_migrates_an_empty_database(tmp_path: Path) -> None:
     config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
     command.upgrade(config, "head")
-    tables = set(inspect(create_engine(f"sqlite:///{database}")).get_table_names())
+    verification_engine = create_engine(f"sqlite:///{database}")
+    try:
+        tables = set(inspect(verification_engine).get_table_names())
+    finally:
+        verification_engine.dispose()
     assert {"alembic_version", "users", "upload_sessions", "extraction_results", "spectrum_catalogs", "spectrum_catalog_entries", "event_outbox"} <= tables
 
 
@@ -1015,3 +1019,4 @@ def test_legacy_schema_is_adopted_without_data_loss(tmp_path: Path) -> None:
         assert connection.exec_driver_sql("SELECT name FROM runs WHERE id='r1'").scalar_one() == "Legacy run"
         assert connection.exec_driver_sql("SELECT original_filename FROM artifacts WHERE id='a1'").scalar_one() == "legacy.mzML"
     assert "alembic_version" in inspect(migrated).get_table_names()
+    migrated.dispose()

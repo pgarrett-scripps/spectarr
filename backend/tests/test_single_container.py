@@ -4,6 +4,7 @@ import io
 import json
 import os
 import sqlite3
+from contextlib import closing
 import stat
 import subprocess
 from pathlib import Path
@@ -39,7 +40,7 @@ def test_sqlite_engine_enables_durability_and_integrity_pragmas(tmp_path) -> Non
 
 def test_online_backup_round_trip(tmp_path) -> None:
     database = tmp_path / "spectarr.db"
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
         connection.execute("INSERT INTO projects VALUES (?, ?)", ("project-1", "Test project"))
 
@@ -49,7 +50,7 @@ def test_online_backup_round_trip(tmp_path) -> None:
 
     restored = tmp_path / "restored.db"
     restored.write_bytes(output.getvalue())
-    with sqlite3.connect(restored) as connection:
+    with closing(sqlite3.connect(restored)) as connection, connection:
         row = connection.execute("SELECT id, name FROM projects").fetchone()
     assert row == ("project-1", "Test project")
 

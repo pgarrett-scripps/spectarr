@@ -117,7 +117,7 @@ class SpxtacularSpectrumSource:
         payload = _spectrum_payload(spectrum)
         if (
             payload.get("schema") != "spxtacular.spectrum"
-            or payload.get("schema_version") != 1
+            or payload.get("schema_version") not in {1, 2}
         ):
             raise SpectrumAccessError(
                 502, "Spxtacular returned an unsupported spectrum transport payload"
@@ -266,6 +266,12 @@ class SpxtacularSpectrumSource:
 
 
 def _spxtacular_reader(path: Path) -> ReaderLike:
+    if (path.is_dir() and (path / "analysis.tdf").is_file()) or (path.is_file() and path.suffix.lower() == ".raw"):
+        from .providers.openmassspec import OpenMassSpecProvider
+        from .vendor_spectra import VendorSpectrumReader
+
+        if OpenMassSpecProvider().is_available():
+            return VendorSpectrumReader(path)
     try:
         from spxtacular import Reader
     except ImportError as error:
@@ -394,7 +400,7 @@ def _spectrum_summary(
         ms_level=_optional_int(getattr(spectrum, "ms_level", None))
         or requested_ms_level,
         rt=_finite_number(getattr(spectrum, "rt", None)),
-        precursor_mz=_finite_number(getattr(precursor, "mz", None)),
+        precursor_mz=_finite_number(getattr(precursor, "precursor_mz", getattr(precursor, "mz", None))),
         precursor_charge=_optional_int(getattr(precursor, "charge", None)),
         peak_count=len(getattr(spectrum, "mz", ())),
         total_ion_current=_finite_number(getattr(spectrum, "total_ion_current", None)),

@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 import sys
-import time
 import uuid
 from pathlib import PurePosixPath
 
@@ -147,7 +146,7 @@ def extraction_summary(run_id: str, token: str | None) -> dict[str, object]:
         f"metadata extraction for {run_id}",
         lambda: smoke_test.json_call("GET", f"/runs/{run_id}", token=token),
         lambda value: bool(value.get("latest_extraction")),
-        600,
+        1200,
     )
     extraction = run["latest_extraction"]
     return {
@@ -163,17 +162,21 @@ def main() -> int:
     parser.add_argument("--large-raw", required=True, help="Allowed import path for a larger vendor RAW")
     parser.add_argument("--bruker", required=True, help="Allowed import path for an atomic Bruker .d directory")
     parser.add_argument("--output", help="Write the JSON result to this path")
+    parser.add_argument("--resume-project", help="Resume a previously created acceptance project")
     args = parser.parse_args()
 
     smoke_test.wait_until_ready()
     token = smoke_test.authenticate()
     suffix = uuid.uuid4().hex[:8]
-    project = smoke_test.json_call(
-        "POST",
-        "/projects",
-        {"name": f"Release acceptance {suffix}"},
-        token,
-    )
+    if args.resume_project:
+        project = smoke_test.json_call("GET", f"/projects/{args.resume_project}", token=token)
+        if not project["name"].startswith("Release acceptance "):
+            raise ValueError("Only acceptance projects can be resumed")
+    else:
+        project = smoke_test.json_call(
+            "POST", "/projects", {"name": f"Release acceptance {suffix}"}, token,
+        )
+    existing_runs = smoke_test.json_call("GET", f"/runs?project_id={project['id']}", token=token)
     fixtures = {
         "thermo": args.thermo,
         "large_raw": args.large_raw,
@@ -183,7 +186,12 @@ def main() -> int:
     sources: dict[str, dict[str, object]] = {}
     for key, source_path in fixtures.items():
         label = PurePosixPath(source_path).name
-        run, artifact = create_imported_run(str(project["id"]), label, source_path, token)
+        run = next((row for row in existing_runs if row["name"] == label), None)
+        if run is None:
+            run, artifact = create_imported_run(str(project["id"]), label, source_path, token)
+        else:
+            artifacts = smoke_test.json_call("GET", f"/runs/{run['id']}/artifacts", token=token)
+            artifact = next(row for row in artifacts if row["role"] == "source" and row["original_filename"] == label)
         runs[key] = run
         sources[key] = artifact
 
@@ -212,6 +220,37 @@ def main() -> int:
         token,
     )
     regenerated = convert_format(str(runs["thermo"]["id"]), "MGF", token)
+    if regenerated["sha256"] != thermo_outputs["MGF"]["sha256"]:
+        raise RuntimeError("Regenerated MGF differs from the original conversion")
+    if not sources["bruker"].get("bundle_manifest"):
+        raise RuntimeError("Bruker acquisition was not imported as an atomic bundle")
+    if not all(summary.get("spectra_count", 0) > 0 for summary in summaries.values()):
+        raise RuntimeError(f"Missing scientific counts: {summaries}")
+
+    # Reimport a real converted acquisition as an independent open-format source.
+    import tempfile
+    from pathlib import Path
+
+    mzml_id = thermo_outputs["mzML"]["artifact_id"]
+    mzml = smoke_test.json_call("GET", f"/artifacts/{mzml_id}", token=token)
+    _, content, _ = smoke_test.call("GET", f"/artifacts/{mzml_id}/download", token=token)
+    open_run = next((row for row in existing_runs if row["name"] == "Open-format source acceptance"), None)
+    if open_run is None:
+        open_run = smoke_test.json_call("POST", "/runs", {
+            "experiment_id": runs["thermo"]["experiment_id"],
+            "sample_id": runs["thermo"]["sample_id"],
+            "name": "Open-format source acceptance", "source_class": "open",
+        }, token)
+        with tempfile.TemporaryDirectory(prefix="spectarr-open-source-") as temporary:
+            path = Path(temporary) / mzml["original_filename"]
+            path.write_bytes(content)
+            open_source = smoke_test.upload(str(open_run["id"]), token, path)
+    else:
+        artifacts = smoke_test.json_call("GET", f"/runs/{open_run['id']}/artifacts", token=token)
+        open_source = next(row for row in artifacts if row["role"] == "source")
+    open_summary = extraction_summary(str(open_run["id"]), token)
+    if open_summary["spectra_count"] != summaries["thermo"]["spectra_count"]:
+        raise RuntimeError("Thermo and its reimported mzML disagree on spectrum count")
 
     result = {
         "status": "ok",
@@ -226,6 +265,10 @@ def main() -> int:
                 "extraction": summaries[key],
             }
             for key in fixtures
+        },
+        "open_source": {
+            "run_id": open_run["id"], "artifact_id": open_source["id"],
+            "sha256": open_source["sha256"], "extraction": open_summary,
         },
         "thermo_outputs": thermo_outputs,
         "cancellation": cancellation,

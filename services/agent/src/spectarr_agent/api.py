@@ -55,7 +55,7 @@ class SpectarrAgentApi:
             json_body={
                 "name": name,
                 "version": __version__,
-                "capabilities": ["resumable_upload", "bundle_upload", "offline_queue", "polling"],
+                "capabilities": ["resumable_upload", "bundle_upload", "offline_queue", "polling", "external_inventory_v1"],
                 "metadata_json": {
                     "local_agent_id": local_agent_id,
                     "hostname": socket.gethostname(),

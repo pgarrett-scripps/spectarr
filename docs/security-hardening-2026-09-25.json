@@ -1,0 +1,72 @@
+{
+  "date": "2026-09-25",
+  "scope": "local only",
+  "image": "sha256:f077ae108e50442091ca1a01d72ca79cce2768f7a88517348c98f04a6391f49c",
+  "tests": {
+    "backend": 214,
+    "frontend": 131,
+    "agent": 43,
+    "converter": 30,
+    "extractor": 35,
+    "mcp": 32,
+    "webhooks": 20,
+    "unique_total": 505,
+    "browser_unique": 10,
+    "backend_coverage_percent": 89.08
+  },
+  "audit": {
+    "image": "sha256:f077ae108e50442091ca1a01d72ca79cce2768f7a88517348c98f04a6391f49c",
+    "findings_by_severity": {
+      "LOW": 94,
+      "HIGH": 55,
+      "MEDIUM": 100,
+      "CRITICAL": 5,
+      "UNKNOWN": 1
+    },
+    "fixable_by_severity": {},
+    "python_audit_exit_code": 0,
+    "local_source_packages_excluded_from_pypi_audit": [
+      {
+        "name": "msconvert-cli",
+        "version": "1.2.0"
+      },
+      {
+        "name": "spectarr",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-converter",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-extractor",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-mcp",
+        "version": "0.3.0"
+      },
+      {
+        "name": "spectarr-webhook-worker",
+        "version": "0.3.0"
+      }
+    ],
+    "note": "An empty fixable count does not mean the image has no vulnerabilities. Review the complete report."
+  },
+  "backup": "storage/upgrade-backups/hardening-20260925/spectarr-20260925T204435Z",
+  "restore": "/tmp/spectarr-hardening-restore-qualified",
+  "rehearsal": "/tmp/spectarr-instrument-rehearsal-q0b9zb4o",
+  "evidence": "storage/security-validation/2026-09-25",
+  "hosted_ci_run": false,
+  "published": false,
+  "local_update": {
+    "health": "healthy",
+    "runs": 20,
+    "artifacts": 44,
+    "checked_file_hashes": 45,
+    "unchanged": true,
+    "url": "http://localhost:3280/",
+    "rollback_image": "spectarr:before-hardening-20260925"
+  },
+  "source_snapshot": "storage/local-integration-snapshots/hardening-2026-09-25"
+}

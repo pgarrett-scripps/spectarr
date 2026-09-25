@@ -177,7 +177,7 @@ def main() -> int:
         description="Serve Spxtacular spectra to the Spectarr API"
     )
     parser.add_argument(
-        "--host", default=os.getenv("SPECTARR_SPECTRUM_HOST", "0.0.0.0")
+        "--host", default=os.getenv("SPECTARR_SPECTRUM_HOST", "127.0.0.1")
     )
     parser.add_argument(
         "--port", type=int, default=int(os.getenv("SPECTARR_SPECTRUM_PORT", "8002"))

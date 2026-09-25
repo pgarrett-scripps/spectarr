@@ -6,11 +6,12 @@ import fnmatch
 import hashlib
 import json
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from .config import AgentConfig
+from .readonly import open_source, tree_files
 
 
 class AcquisitionChanged(RuntimeError):
@@ -49,11 +50,14 @@ class AcquisitionScanner:
 
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
+        self.errors: list[str] = []
 
     def discover(self) -> list[Candidate]:
+        self.errors = []
         found: dict[str, Candidate] = {}
         for watch_path in self.config.watch_paths:
             if watch_path.is_symlink() or not watch_path.exists():
+                self.errors.append(f"Root unavailable: {watch_path}")
                 continue
             if self._is_candidate(watch_path):
                 candidate = self._candidate(watch_path)
@@ -67,7 +71,8 @@ class AcquisitionScanner:
     def _walk(self, root: Path, found: dict[str, Candidate]) -> None:
         try:
             entries = sorted(root.iterdir(), key=lambda item: item.name.casefold())
-        except OSError:
+        except OSError as error:
+            self.errors.append(f"Cannot traverse {root}: {error}")
             return
         for entry in entries:
             if entry.is_symlink() or self._ignored(entry.name):
@@ -116,7 +121,7 @@ class AcquisitionScanner:
         records: list[tuple[str, int, int]] = []
         total = 0
         try:
-            files = sorted(candidate.path.rglob("*"), key=lambda item: item.as_posix().casefold())
+            files = sorted(tree_files(candidate.path), key=lambda item: item.as_posix())
         except OSError as error:
             return Snapshot("blocked", 0, 0, True, str(error))
         for path in files:
@@ -154,14 +159,20 @@ class AcquisitionScanner:
                 return sibling
         return None
 
+    def published(self, candidate: Candidate) -> bool:
+        if self.config.completion_policy == "stability":
+            return True
+        marker = Path(str(candidate.path) + ".complete")
+        return marker.is_file() and not marker.is_symlink()
+
     def hash_candidate(self, candidate: Candidate) -> HashedAcquisition:
         before = self.snapshot(candidate)
-        if before.blocked:
+        if before.blocked or not self.published(candidate):
             raise AcquisitionChanged(before.reason or "Acquisition is blocked")
         if candidate.kind == "file":
             checksum, byte_size = hash_file(candidate.path)
             after = self.snapshot(candidate)
-            if before.signature != after.signature or byte_size != after.byte_size:
+            if before.signature != after.signature or byte_size != after.byte_size or not self.published(candidate):
                 raise AcquisitionChanged("File changed while being hashed")
             return HashedAcquisition(
                 candidate.path,
@@ -174,7 +185,7 @@ class AcquisitionScanner:
 
         files: list[dict[str, str | int]] = []
         total = 0
-        for path in sorted(candidate.path.rglob("*"), key=lambda item: item.as_posix().casefold()):
+        for path in sorted(tree_files(candidate.path), key=lambda item: item.as_posix()):
             if not path.is_file() or path.is_symlink():
                 continue
             checksum, size = hash_file(path)
@@ -195,7 +206,7 @@ class AcquisitionScanner:
         manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
         checksum = hashlib.sha256(manifest_bytes).hexdigest()
         after = self.snapshot(candidate)
-        if before.signature != after.signature or total != after.byte_size:
+        if before.signature != after.signature or total != after.byte_size or not self.published(candidate):
             raise AcquisitionChanged("Bundle changed while being hashed")
         return HashedAcquisition(
             candidate.path,
@@ -211,10 +222,16 @@ class AcquisitionScanner:
 def hash_file(path: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
     size = 0
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+    with open_source(path) as stream:
+        before = os.fstat(stream.fileno())
+        for chunk in iter(lambda: stream.read(min(8 * 1024 * 1024, before.st_size - size + 1)), b""):
             digest.update(chunk)
             size += len(chunk)
+            if size > before.st_size:
+                raise AcquisitionChanged("File grew while being hashed")
+        after = os.fstat(stream.fileno())
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            raise AcquisitionChanged("File changed while being hashed")
     return digest.hexdigest(), size
 
 

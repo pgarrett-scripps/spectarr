@@ -313,10 +313,11 @@ async def test_spectrum_endpoint_preserves_reader_not_found(
     assert response.json()["detail"] == "No matching spectrum was found"
 
 
-async def test_internal_reader_client_validates_transport_schema() -> None:
+@pytest.mark.parametrize("version", [1, 2])
+async def test_internal_reader_client_validates_transport_schema(version) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["X-Spectarr-Worker-Token"] == "worker-token"
-        return httpx.Response(200, json=spectrum_payload())
+        return httpx.Response(200, json={**spectrum_payload(), "schema_version": version})
 
     reader = SpectrumReaderClient(
         "http://spectrum-reader:8002/",

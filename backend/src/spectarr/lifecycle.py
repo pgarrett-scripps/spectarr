@@ -15,6 +15,7 @@ from .models import (
     ArtifactState,
     AuditLog,
     Experiment,
+    ExternalTask,
     Job,
     JobState,
     Project,
@@ -46,7 +47,7 @@ def delete_experiment(
     actor_id: str | None,
 ) -> dict:
     if confirmation != experiment.name:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Confirmation must match the experiment name")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Confirmation must match the experiment name")
     if experiment.intake_agent_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "Instrument inbox experiments cannot be deleted")
     assigned_agent = session.scalar(
@@ -57,6 +58,8 @@ def delete_experiment(
             status.HTTP_409_CONFLICT,
             f"Agent '{assigned_agent.name}' must be retargeted before this experiment can be deleted",
         )
+    if session.scalar(select(ExternalTask.id).where(ExternalTask.experiment_id == experiment.id, ExternalTask.state == "pending")):
+        raise HTTPException(409, "Cancel pending external imports before deleting this experiment")
     artifacts = artifacts_for_experiment(session, experiment.id)
     artifact_ids = [artifact.id for artifact in artifacts]
     if artifact_ids and session.scalar(

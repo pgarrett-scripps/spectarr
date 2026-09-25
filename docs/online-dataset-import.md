@@ -1,0 +1,68 @@
+# Online dataset import
+
+Choose **Import data → Source method → Online repository (PRIDE)** to download public PRIDE acquisitions directly to the Spectarr server. Imports continue after you close the browser and recover after a server restart. Return to the same page to follow progress, cancel downloads, retry failures, or open completed runs.
+
+1. Paste a PRIDE accession, such as `PXD000001`, or its PRIDE project URL, then select **Look up dataset**.
+2. Review the title, description, citation, and file list. Filter raw data or supported open formats and search filenames, then select individual files or choose **Select matching files**. Previously imported files are marked when importing from a project.
+3. If an SDRF is available, review its preview and keep **Import SDRF metadata for selected acquisitions** checked to import matching sample metadata. Choose another SDRF from the selector when the dataset contains several, or uncheck the option to enter sample names manually.
+4. Choose an existing or new project and experiment. Review the run and sample name for each selected file. Matched samples display their SDRF source names. Each selected file becomes a separate acquisition.
+5. Check the selected size and available server space, then select **Download**. Up to 500 files can be queued in one request.
+6. Follow transfer, verification, and registration under **Repository downloads**. After registration, existing metadata extraction and conversion rules apply.
+
+The source selector is preserved in the page URL, so reloading an online import page reconnects to the saved queue. The destination and selected names are fixed when a batch is accepted. Repeating an enqueue request with its original idempotency key returns the same items. Explicitly starting a new batch can create a separate acquisition from a previously imported file.
+
+Filename search is case insensitive and combines with the format filter. The list initially renders 100 matches, with **Show 100 more files** for additional rows. Bulk selection includes every supported match, including rows not yet shown. It preserves existing selections and edited run or sample names. **Clear matching selection** affects only the current matches, while **Clear all selections** resets the selection. A batch is limited to 500 files. Refine the search when selecting every match would exceed that limit.
+
+This release supports public PRIDE single-file acquisitions: RAW, mzML, gzipped mzML, mzXML, MGF, gzipped MGF, MS2, and gzipped MS2. Archives, vendor directories and companion-file acquisitions, identification results, FASTA files, and project documents are shown but cannot be selected as acquisitions. Private datasets, ongoing SDRF synchronization, direct arbitrary URLs, and other repositories are not supported yet. A ProteomeXchange `PXD` accession hosted outside PRIDE is not automatically resolved to its hosting repository.
+
+Two files download in parallel by default, using background threads owned by the API lifespan. Administrators can change the limit from 1 through 8 under **Settings → Downloads**. The saved preference persists in SQLite and applies to new transfers without restarting. Lower limits take effect as active transfers finish. **Use server default** removes the saved override and uses `SPECTARR_REMOTE_DOWNLOAD_CONCURRENCY`, which defaults to 2. Both Compose configurations expose this environment setting. Process-owned slot locks enforce the limit across API processes sharing storage, and per-file locks prevent duplicate transfers. These locks release after forced termination. SQLite records the destination project, file identity, transfer progress, remote validator, retry state, disk reservation, and output artifact. Files remain in private staging until verified, then enter the existing immutable source storage and processing pipeline. Registration is serialized to protect shared sample and SDRF updates. The worker uses stable run and artifact identifiers to reconcile a crash after registration without duplicating either record.
+
+Transfers use the existing HTTPX HTTPS client with one connection per active file. This adds parallel downloads without an aria2c installation or separate daemon. PRIDE FTP listing URLs are converted to the archive's HTTPS endpoint.
+
+SDRF discovery checks both the project file listing and PRIDE's dedicated SDRF endpoint. Preview accepts documents up to 5 MiB and requires `source name` and `comment[data file]` columns. Rows match a unique supported acquisition filename after stripping directory components. Unmatched or ambiguous filenames and invalid sample names produce warnings. The preview shows the first ten rows and counts matches for the current selection. Files without a match retain their manually entered sample names. An unavailable SDRF does not prevent importing acquisitions.
+
+Enqueue fetches the SDRF again and requires its SHA-256 to match the preview. Each queued acquisition stores only its matching rows. After a successful transfer, those rows are appended to the destination project's SDRF, with sample, run, and artifact links. Multiple samples and labels for one file are preserved, including multiplexed experiments. Existing SDRF rows and sample annotations are retained. Imports record the original SDRF URL, hash, and row numbers as provenance and reconcile retries without appending duplicate rows. The resulting project SDRF is a draft for normal validation and review. Preview performs structural checks, not full ontology or template validation.
+
+Partial transfers resume with HTTP Range and If-Range when a remote validator is available. The worker validates the returned range and validator. If the server returns the full file, it restarts the transfer. Invalid ranges are rejected. Transient connection failures and selected HTTP errors receive up to three attempts with increasing delays. Other failures remain available for manual retry. Cancellation is cooperative and can take until the current network read or file operation completes. Failed staging is retained for up to seven days. Cancelled, completed, and orphaned staging is removed by the download worker.
+
+PRIDE's metadata size can differ from the size served by the file endpoint, particularly for generated compressed files. The selection view shows the repository's reported size. A complete HTTPS response with Content-Length establishes the actual transfer size, which updates queue progress and is checked against the configured limit and available space. Both sizes are retained as artifact provenance. When a repository checksum is present and its algorithm is recognized, it is verified before registration. Spectarr also calculates SHA-256 for immutable storage. An absent repository checksum is preserved as absent, so a local SHA-256 is not represented as independent repository verification.
+
+Capacity checks include concurrent transfer staging and the ingestion copy, with allowance for library copying. Conversion and extraction may need additional disk space. The existing `SPECTARR_MAX_UPLOAD_BYTES` limit also applies to each remote file, including an updated HTTP transfer size. Each active worker reserves its remaining capacity before transferring. A file waits when other active downloads temporarily reserve the available space, and reservations from terminated workers are reclaimed. Setting `SPECTARR_REMOTE_IMPORTS_ENABLED=false` disables enqueueing and the download worker. Restore verification mode always disables downloads.
+
+The integration uses PRIDE v3 metadata and HTTPS transfers from `ftp.pride.ebi.ac.uk`. It does not inherit environment proxy settings or follow redirects. URLs are restricted to the PRIDE archive host and path, and host resolution must return public addresses. All queue reads and mutations enforce destination project access before an artifact exists. Remote filenames never determine staging paths. Stored provenance includes the repository accession, file identity, citation metadata, source URL, retrieval time, reported and downloaded sizes, and expected checksum.
+
+The REST interface is:
+
+| Operation | Endpoint |
+| --- | --- |
+| Look up a public dataset | `GET /api/v1/repositories/pride?accession=PXD000001` |
+| Look up with import history | Add `project_id` to the lookup query |
+| Preview an available SDRF | `GET /api/v1/repositories/pride/sdrf?accession=PXD000561&file_id=...` |
+| Enqueue selected files | `POST /api/v1/remote-imports` with an `Idempotency-Key` UUID header |
+| List persistent downloads | `GET /api/v1/remote-imports`, with optional `project_id`, `offset`, and `limit` |
+| Cancel a download | `POST /api/v1/remote-imports/{id}/cancel` |
+| Retry a failed or cancelled download | `POST /api/v1/remote-imports/{id}/retry` |
+| Read download settings (administrator) | `GET /api/v1/settings/downloads` |
+| Save a limit or reset to the environment default (administrator) | `PUT /api/v1/settings/downloads` with `{"concurrency": 4}` or `{"concurrency": null}` |
+
+Enqueue accepts an accession, destination experiment ID, and selected repository file IDs with run and sample names. To include SDRF metadata, supply both `sdrf_file_id` and `sdrf_sha256` from the preview. The backend resolves download URLs from fresh PRIDE metadata. Client-supplied transfer URLs are not accepted. Schema migrations `0011`, `0012`, and `0013` create the persistent queue, disk reservations, and saved download settings automatically at application startup.
+
+Validation on September 8, 2026 included backend recovery, integrity, capacity, authorization, and retry tests, dashboard component tests, and a live Chromium workflow that selected a PRIDE file, queued it, reloaded the page, and opened the resulting run. The live file was `PRIDE_Exp_Complete_Ac_22134.pride.mgf.gz` from `PXD000001`. Its listing reported 16,448,103 bytes and the HTTPS endpoint supplied 5,984,662 bytes. Extraction produced a ready catalog with 6,103 spectra. The stored SHA-256 was `9b35ea49b37c2a8c96d3a00433779675bd16935fcfccdd13b04cc16a8bce3fea`. Test data was kept in a separate temporary instance.
+
+Automated checks also cover overlapping transfers, competing worker slots, disk reservations, a killed worker resuming from a durable partial file, SDRF preview hash changes, multiplexed sample labels, existing document preservation, and registration recovery. Settings tests verify persistence, immediate worker behavior, administrator authorization, reset to defaults, and uninterrupted active transfers when the limit decreases. The complete backend suite passes 154 tests with 87.94% coverage. The frontend passes 79 tests, type checking, lint, and production build. Converter and extractor regression suites pass 25 and 28 tests respectively.
+
+The full live browser check passed against an isolated instance. It saved a concurrency limit of 3, reloaded Settings to verify persistence, reset to the default two download slots, searched filenames, and selected matching files in bulk. Three files from `PXD000561` completed download, SDRF registration, RAW conversion, source extraction, derivative extraction, and spectrum retrieval:
+
+| Acquisition | Downloaded bytes | Spectra in RAW and mzML | MS/MS spectra |
+| --- | --- | --- | --- |
+| `Adult_CD4Tcells_Gel_Velos_30_f42.raw` | 1,191,599 | 12 | 0 |
+| `Adult_Monocytes_Gel_Velos_32_f30.raw` | 6,872,847 | 228 | 0 |
+| `Adult_Monocytes_bRP_Velos_31_f05.raw` | 112,900,723 | 5,440 | 2,792 |
+
+The project received three linked SDRF rows with source sample names and tissue annotations. The pinned ProteoWizard image produced indexed mzML gzip derivatives. OpenMassSpec read the original RAW files, and the mzML parser indexed the derivatives. The browser check queried an MS/MS scan from the larger acquisition and verified nonempty, equally sized m/z and intensity arrays. The first two small acquisitions contain only MS1 scans, which is why the full processing check includes the larger file.
+
+To repeat the opt-in live browser checks against a test deployment, set `SPECTARR_E2E_URL` when running `npx playwright test e2e/online-import.spec.ts` from the frontend directory. `SPECTARR_E2E_PRIDE=true` downloads one public acquisition and creates a test project. `SPECTARR_E2E_PRIDE_SDRF=true` selects two small RAW files from `PXD000561`, imports their matching SDRF rows, reloads the queue, and checks the resulting project document. The SDRF check expects a local test instance without a login prompt.
+
+Also set `SPECTARR_E2E_PRIDE_PIPELINE=true` to include the larger MS/MS acquisition and verify the full processing workflow. Start the normal conversion worker, extraction worker with the OpenMassSpec provider, and authenticated spectrum reader against the same isolated API and storage. Keep the standard mzML source processing rule enabled. The API needs `SPECTARR_SPECTRUM_READER_URL` pointing to that reader. This check downloads approximately 121 MB, creates a new project, and changes then resets the test server's concurrency preference. Run it only on a dedicated test instance.
+
+Future providers can share the persistent transfer and ingestion design. The [pridepy client](https://github.com/PRIDE-Archive/pridepy) documents MassIVE, jPOST, and iProX support. [MetaboLights utilities](https://github.com/EBI-Metabolights/metabolights-utils/blob/main/README.md) provide public study listing and download capabilities. Each provider still needs its own tested discovery, destination policy, and metadata mapping. PRIDE integration references are its [download guidance](https://github.com/orgs/PRIDE-Archive/discussions/33) and [v3 OpenAPI schema](https://www.ebi.ac.uk/pride/ws/archive/v3/v3/api-docs).

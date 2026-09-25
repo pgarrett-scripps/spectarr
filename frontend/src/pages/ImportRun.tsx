@@ -7,6 +7,7 @@ import { formatBytes } from '../components/Data'
 import { LoadingState, PageHeader, Panel } from '../components/Page'
 import { projectRunsPath } from '../navigation'
 import type { Project } from '../types'
+import { OnlineImport } from './OnlineImport'
 
 type ImportItem = {
   id: string
@@ -36,11 +37,11 @@ function importKey(): string {
 }
 
 export function ImportRun() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const projectId = searchParams.get('project') ?? ''
   const project = useResource<Project | null>(() => projectId ? api.project(projectId) : Promise.resolve(null), null, projectId)
   const experiments = useResource(() => projectId ? api.experiments(projectId) : Promise.resolve([]), [], projectId)
-  const [sourceMode, setSourceMode] = useState<'file' | 'path'>('file')
+  const [sourceMode, setSourceMode] = useState<'file' | 'path' | 'online'>(searchParams.get('source') === 'online' ? 'online' : 'file')
   const [projectName, setProjectName] = useState('')
   const [experimentName, setExperimentName] = useState('')
   const [sourcePaths, setSourcePaths] = useState('')
@@ -159,8 +160,18 @@ export function ImportRun() {
   return <>
     {!submitting && <Link className="back-link" to={backPath}><ArrowLeft size={15} /> {project.data?.name ?? 'Projects'}</Link>}
     <PageHeader title="Import mass spectrometry data" description="Queue acquisitions, review their names, and import them into one project and experiment." />
+    {!started && <Panel title="Import source"><div className="form-grid"><label><span>Source method</span><select value={sourceMode} onChange={event => {
+      const mode = event.target.value as 'file' | 'path' | 'online'
+      setSourceMode(mode)
+      setSearchParams(current => {
+        if (mode === 'online') current.set('source', 'online')
+        else current.delete('source')
+        return current
+      }, { replace: true })
+    }}><option value="file">Upload files</option><option value="path">Import allowlisted server paths</option><option value="online">Online repository (PRIDE)</option></select></label></div></Panel>}
     {(error || project.error || experiments.error) && <div className="message-banner" role="alert">{error ?? project.error ?? experiments.error}</div>}
     {(project.loading || experiments.loading) && projectId ? <LoadingState label="Loading project context" /> :
+    sourceMode === 'online' ? <OnlineImport projectId={projectId} projectName={projectName} experimentName={experimentName} experiments={experiments.data} onProjectName={setProjectName} onExperimentName={setExperimentName} /> :
     <form onSubmit={submit}>
       <Panel title="Destination">
         <div className="form-grid">
@@ -170,7 +181,7 @@ export function ImportRun() {
       </Panel>
       {!started && <Panel title="Sources" subtitle="Choose multiple files, or add server paths. Each acquisition becomes one run.">
         <div className="form-grid metadata-form-grid">
-          <label><span>Source method</span><select value={sourceMode} onChange={event => setSourceMode(event.target.value as 'file' | 'path')}><option value="file">Upload files</option><option value="path">Import allowlisted server paths</option></select></label>
+
           {sourceMode === 'file'
             ? <label><span>Source files</span><input type="file" multiple onChange={event => {
               addSources(Array.from(event.target.files ?? []).map(file => ({ file })))

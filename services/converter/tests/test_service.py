@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 from mzmlpy import AccessStrategy, Mzml
 from mzmlpy.embedded_indexed_gzip import is_embedded_indexed_gzip
 
-from spectarr_converter.models import ConversionRequest
+from spectarr_converter.models import OutputFormat, ConversionRequest
 from spectarr_converter.recipes import Recipe, get_recipe
 from spectarr_converter.service import ConversionService, MsconvertCliRunner, ProcessReport
 
@@ -67,6 +67,18 @@ class ConversionServiceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def test_rejects_xml_entities_in_plain_and_compressed_output(self):
+        content = b'<!DOCTYPE mzML [<!ENTITY injected "unexpected">]><mzML>&injected</mzML>'
+        for compressed in (False, True):
+            with self.subTest(compressed=compressed):
+                path = self.root / ('unsafe.mzML.gz' if compressed else 'unsafe.mzML')
+                path.write_bytes(gzip.compress(content) if compressed else content)
+                with self.assertRaises(ValueError):
+                    ConversionService._validate_file(path, OutputFormat.MZML)
+                if compressed:
+                    with self.assertRaises(ValueError):
+                        ConversionService._validate_indexed_mzml(path)
+
     def test_returns_validated_structured_result(self) -> None:
         runner = FakeRunner(b'<?xml version="1.0"?><mzML></mzML>')
         service = ConversionService(self.root / "scratch", (self.source_root,), runner=runner)
@@ -91,6 +103,27 @@ class ConversionServiceTests(unittest.TestCase):
         result = service.convert(ConversionRequest("job-2", str(outside), "archival-mzml-v1"))
         self.assertEqual(result.status, "failed")
         self.assertIn("outside configured storage roots", result.error or "")
+
+    def test_indexes_gzipped_mzml_from_named_presets_without_double_suffix(self) -> None:
+        content = b'<?xml version="1.0"?><mzML></mzML>'
+        runner = FakeRunner(gzip.compress(content), suffix=".mzML.gz")
+        service = ConversionService(self.root / "scratch", (self.source_root,), runner=runner)
+        result = service.convert(ConversionRequest("job-gzip", str(self.source), "archival-mzml-v1"))
+        self.assertEqual(result.status, "succeeded", result.error)
+        output = Path(result.outputs[0].path)
+        self.assertEqual(output.name, "sample.mzML.gz")
+        self.assertTrue(is_embedded_indexed_gzip(output))
+        with gzip.open(output, "rb") as stream:
+            self.assertEqual(stream.read(), content)
+        self.assertEqual(result.outputs[0].sha256, service._sha256(output))
+
+    def test_rejects_truncated_gzip_output_before_publication(self) -> None:
+        content = gzip.compress(b'<?xml version="1.0"?><mzML></mzML>')[:-4]
+        service = ConversionService(self.root / "scratch", (self.source_root,),
+                                    runner=FakeRunner(content, suffix=".mzML.gz"))
+        result = service.convert(ConversionRequest("job-truncated", str(self.source), "archival-mzml-v1"))
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.outputs, [])
 
     def test_rejects_unpinned_image(self) -> None:
         with self.assertRaisesRegex(ValueError, "pinned"):
@@ -205,6 +238,11 @@ class ConversionServiceTests(unittest.TestCase):
         container_name = converter.build_docker_command.call_args.kwargs["container_name"]
         self.assertTrue(container_name.startswith("spectarr-msconvert-"))
         self.assertEqual(converter.execute_command.call_args.kwargs["container_name"], container_name)
+        command = converter.execute_command.call_args.args[0]
+        self.assertIn("--network", command)
+        self.assertEqual(command[command.index("--network") + 1], "none")
+        self.assertEqual(command[command.index("--cap-drop") + 1], "ALL")
+        self.assertIn("no-new-privileges", command)
 
     def test_named_config_is_copied_into_the_shared_job_directory(self) -> None:
         config = self.root / "sage.txt"

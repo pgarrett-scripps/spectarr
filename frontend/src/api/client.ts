@@ -1,5 +1,7 @@
 import type { BackupPolicy, BackupStatus, ApiToken, Artifact, ArtifactFormat, AuthConfiguration, AutomationRule, ConversionFormat, CurrentUser, Experiment, ExperimentDeletionPreview, ExtractionSummary, Instrument, InstrumentAgent, Job, OverviewData, PaginatedResponse, ProcessingBatch, ProcessingBatchPreview, ProcessingProfile, Project, ProjectMembership, Run, RunStatus, SdrfDocument, SdrfTemplate, SdrfValidationReport, SpectrumCatalogPage, SpectrumQueryRequest, SpxtacularSpectrum, StorageLocation, StorageReclaimPreview, SubmissionPreview, User, UserRole, WebhookDelivery, WebhookDestination } from '../types'
 
+import { clearResourceCache } from './resourceCache'
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const TOKEN_KEY = 'spectarr_access_token'
 export const AUTH_EXPIRED_EVENT = 'spectarr-auth-expired'
@@ -14,10 +16,12 @@ export const getAccessToken = (): string | null => {
   return legacyToken
 }
 export const setAccessToken = (value: string): void => {
+  clearResourceCache()
   sessionStorage.setItem(TOKEN_KEY, value)
   localStorage.removeItem(TOKEN_KEY)
 }
 export const clearAccessToken = (): void => {
+  clearResourceCache()
   sessionStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(TOKEN_KEY)
 }
@@ -29,19 +33,28 @@ export class ApiError extends Error {
   }
 }
 
-export async function downloadArtifact(id: string): Promise<Blob> {
-  const accessToken = getAccessToken()
-  const response = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}/download`, {
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined
-  })
-  if (!response.ok) {
-    if (response.status === 401 && accessToken) {
-      clearAccessToken()
-      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+async function responseError(response: Response, accessToken: string | null): Promise<ApiError> {
+  let message = `Request failed with status ${response.status}`
+  try {
+    const body = await response.json() as { detail?: unknown }
+    if (typeof body.detail === 'string') message = body.detail
+    else if (Array.isArray(body.detail)) {
+      const details = body.detail.map((entry: { loc?: unknown[], msg?: string }) =>
+        `${entry.loc?.filter(part => part !== 'body').join('.') || 'Input'}: ${entry.msg || 'Invalid value'}`)
+      if (details.length) message = details.join('. ')
     }
-    throw new ApiError(response.status, `Download failed with status ${response.status}`)
+  } catch {
+    // Keep the HTTP status when the response does not contain JSON.
   }
-  return response.blob()
+  if (response.status === 401 && accessToken && getAccessToken() === accessToken) {
+    clearAccessToken()
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+  }
+  return new ApiError(response.status, message)
+}
+
+export async function downloadArtifact(id: string): Promise<Blob> {
+  return download(`/artifacts/${encodeURIComponent(id)}/download`)
 }
 
 async function download(path: string): Promise<Blob> {
@@ -49,13 +62,21 @@ async function download(path: string): Promise<Blob> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined
   })
-  if (!response.ok) {
-    throw new ApiError(response.status, `Download failed with status ${response.status}`)
-  }
+  if (!response.ok) throw await responseError(response, accessToken)
   return response.blob()
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const mutation = !['GET', 'HEAD'].includes((init?.method ?? 'GET').toUpperCase())
+  if (mutation) clearResourceCache()
+  try {
+    return await performRequest<T>(path, init)
+  } finally {
+    if (mutation) clearResourceCache()
+  }
+}
+
+async function performRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
   const accessToken = getAccessToken()
   const response = await fetch(`${API_BASE}${path}`, {
@@ -67,22 +88,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers
     }
   })
-
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`
-    try {
-      const body = await response.json() as { detail?: string }
-      message = body.detail ?? message
-    } catch {
-      // Keep the status based message when the body is not JSON
-    }
-    if (response.status === 401 && accessToken) {
-      clearAccessToken()
-      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
-    }
-    throw new ApiError(response.status, message)
-  }
-
+  if (!response.ok) throw await responseError(response, accessToken)
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
@@ -154,6 +160,7 @@ function uploadImportFile(
     })
     xhr.upload.onload = () => onProgress?.({ phase: 'Registering source' })
     xhr.onload = () => {
+      clearResourceCache()
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve()
         return
@@ -174,6 +181,7 @@ function uploadImportFile(
     xhr.onerror = () => reject(new Error('Upload connection failed. Retry this item when the connection returns.'))
     xhr.onabort = () => reject(new Error('Upload was interrupted. Retry this item.'))
     onProgress?.({ phase: 'Uploading', percent: 0 })
+    clearResourceCache()
     xhr.send(body)
   })
 }
@@ -236,6 +244,7 @@ type ApiRecord = Record<string, unknown>
 
 const textValue = (value: unknown, fallback = ''): string => typeof value === 'string' ? value : fallback
 const numberValue = (value: unknown, fallback = 0): number => typeof value === 'number' ? value : fallback
+const optionalNumber = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined
 const recordValue = (value: unknown): ApiRecord => value !== null && typeof value === 'object' ? value as ApiRecord : {}
 const stringList = (value: unknown): string[] => Array.isArray(value) ? value.filter(item => typeof item === 'string') : []
 const numberPair = (value: unknown): [number, number] | undefined => Array.isArray(value) && value.length >= 2 && typeof value[0] === 'number' && typeof value[1] === 'number'
@@ -265,10 +274,13 @@ function normalizeExtraction(value: unknown): ExtractionSummary | undefined {
   const peakCount = recordValue(summary.peak_count)
   const ionMobility = recordValue(summary.ion_mobility)
   const dia = recordValue(summary.dia)
-  const durationSeconds = numberValue(summary.acquisition_duration_seconds)
+  const durationSeconds = optionalNumber(summary.acquisition_duration_seconds)
   const representations = stringList(summary.representations)
   return {
     id: textValue(item.id, 'latest'),
+    artifactId: textValue(item.artifact_id) || undefined,
+    artifactName: textValue(item.artifact_name) || undefined,
+    selectionReason: textValue(item.selection_reason) || undefined,
     status: textValue(item.status, 'succeeded') as ExtractionSummary['status'],
     extractor: textValue(item.extractor ?? item.extractor_name, 'unknown'),
     extractorVersion: textValue(item.extractor_version, 'unknown'),
@@ -278,10 +290,10 @@ function normalizeExtraction(value: unknown): ExtractionSummary | undefined {
     finishedAt: textValue(item.finished_at ?? item.created_at) || undefined,
     error: textValue(item.error) || undefined,
     warnings: stringList(item.warnings ?? summary.warnings),
-    spectrumCount: numberValue(summary.spectrum_count ?? summary.spectra_count) || undefined,
+    spectrumCount: optionalNumber(summary.spectrum_count ?? summary.spectra_count),
     spectraByMsLevel: Object.fromEntries(Object.entries(spectraByMsLevel).map(([key, count]) => [key, numberValue(count)])),
-    ms2Count: numberValue(summary.ms2_count ?? spectraByMsLevel['2']) || undefined,
-    durationMinutes: numberValue(summary.duration_minutes) || (durationSeconds ? durationSeconds / 60 : undefined),
+    ms2Count: optionalNumber(summary.ms2_count ?? spectraByMsLevel['2']),
+    durationMinutes: optionalNumber(summary.duration_minutes) ?? (durationSeconds !== undefined ? durationSeconds / 60 : undefined),
     rtRange: numberPair(summary.rt_range) ?? (typeof retentionTimes.min === 'number' && typeof retentionTimes.max === 'number' ? [retentionTimes.min / 60, retentionTimes.max / 60] : undefined),
     mzRange: numberPair(summary.mz_range) ?? (typeof mzRange.min === 'number' && typeof mzRange.max === 'number' ? [mzRange.min, mzRange.max] : undefined),
     polarities: stringList(summary.polarities),
@@ -310,6 +322,7 @@ function normalizeArtifact(value: unknown): Artifact {
     checksum: textValue(item.checksum, item.sha256 ? `sha256:${item.sha256}` : 'Checksum pending'),
     status: state === 'ready' ? 'verified' : state === 'missing' ? 'purged' : state as Artifact['status'],
     libraryPath: textValue(item.libraryPath ?? item.library_path) || undefined,
+    isDirectory: item.isDirectory === true || item.bundle_manifest != null,
     materializationMode: (textValue(item.materializationMode ?? item.materialization_mode) || undefined) as Artifact['materializationMode']
   }
 }
@@ -330,15 +343,16 @@ function normalizeRun(value: unknown, artifacts?: unknown[]): Run {
     experimentName: textValue(item.experimentName, textValue(metadata.experiment_name, 'Unassigned')),
     sampleName: textValue(item.sampleName, textValue(metadata.sample_name, 'Unassigned')),
     instrument: textValue(item.instrument, textValue(metadata.instrument, 'Unknown')),
-    acquiredAt: textValue(item.acquiredAt ?? item.acquired_at ?? item.created_at, new Date().toISOString()),
+    acquiredAt: textValue(item.acquiredAt ?? item.acquired_at) || undefined,
     importedAt: textValue(item.importedAt ?? item.created_at, new Date().toISOString()),
     status: textValue(item.status, normalizedArtifacts.length ? 'ready' : 'warning') as RunStatus,
     sourceFormat: normalizeFormat(sourceFormat),
     sizeBytes: numberValue(item.sizeBytes, normalizedArtifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0)),
-    spectraCount: numberValue(item.spectraCount ?? extraction?.spectrumCount ?? metadata.spectra_count) || undefined,
-    ms2Count: numberValue(item.ms2Count ?? extraction?.ms2Count ?? metadata.ms2_count) || undefined,
-    durationMinutes: numberValue(item.durationMinutes ?? extraction?.durationMinutes ?? metadata.duration_minutes) || undefined,
+    spectraCount: optionalNumber('spectraCount' in item ? item.spectraCount : extraction?.spectrumCount ?? metadata.spectra_count),
+    ms2Count: optionalNumber('ms2Count' in item ? item.ms2Count : extraction?.ms2Count ?? metadata.ms2_count),
+    durationMinutes: optionalNumber('durationMinutes' in item ? item.durationMinutes : extraction?.durationMinutes ?? metadata.duration_minutes),
     extraction,
+    processingJobs: (Array.isArray(item.processing_jobs) ? item.processing_jobs : []).map(normalizeJob),
     metadata,
     artifacts: normalizedArtifacts,
     assignmentStatus: textValue(item.assignmentStatus ?? item.assignment_status, 'assigned') as Run['assignmentStatus']
@@ -449,11 +463,13 @@ function normalizeSubmission(value: unknown): SubmissionPreview {
 function normalizeJob(value: unknown): Job {
   const item = recordValue(value)
   const rawState = textValue(item.status ?? item.state, 'queued')
-  const status = rawState === 'succeeded' ? 'complete' : rawState === 'cancelled' ? 'failed' : rawState
+  const status = rawState === 'succeeded' ? 'complete' : rawState
   const progress = numberValue(item.progress)
   return {
     id: textValue(item.id),
     kind: textValue(item.kind, 'import') as Job['kind'],
+    inputArtifactId: textValue(item.input_artifact_id) || undefined,
+    outputFormat: textValue(item.output_format) || undefined,
     runName: textValue(item.runName ?? item.run_name, 'System'),
     status: status as Job['status'],
     progress: progress <= 1 ? Math.round(progress * 100) : Math.round(progress),
@@ -711,6 +727,7 @@ export const api = {
       status: textValue(response.status, 'unknown'),
       database: textValue(response.database, 'unknown'),
       storage: textValue(response.storage, 'unknown'),
+      mcpPublicUrl: textValue(response.mcp_public_url) || undefined,
       version: textValue(response.version, 'unknown')
     }
   },
@@ -919,6 +936,7 @@ export const api = {
     } satisfies OverviewData
   },
   runs: allRuns,
+  artifactAccess: (id: string) => request<import('../types').ArtifactAccess>(`/artifacts/${encodeURIComponent(id)}/access`),
   runPage,
   inbox: async () => normalizeList(await request<unknown[] | PaginatedResponse<unknown>>('/inbox')).map(item => normalizeRun(item)),
   run: async (id: string) => {
@@ -1037,6 +1055,7 @@ export const api = {
     }
     return { ...run, projectId: destination.projectId }
   },
+  cancelQueuedJob: (id: string) => request(`/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
   retryJob: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
   assignRuns: async (runIds: string[], experimentId: string) => normalizeList(await request<unknown[]>('/runs/bulk-assignment', {
     method: 'POST',

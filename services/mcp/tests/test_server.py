@@ -5,7 +5,7 @@ import json
 import threading
 from typing import Any
 from unittest.mock import patch
-from urllib import request
+from urllib import request, error
 
 from http.server import ThreadingHTTPServer
 
@@ -62,6 +62,60 @@ class SpectarrApiClientTests(unittest.TestCase):
 
 
 class SpectarrMcpServerTests(unittest.TestCase):
+    def test_read_mode_only_advertises_available_tools(self) -> None:
+        read = SpectarrMcpServer(FakeApi()).dispatch("tools/list", {})["tools"]
+        write = SpectarrMcpServer(FakeApi(), allow_writes=True).dispatch("tools/list", {})["tools"]
+        self.assertTrue(all(tool["annotations"]["readOnlyHint"] for tool in read))
+        self.assertGreater(len(write), len(read))
+
+    def test_external_inventory_tools_only_read_project_scoped_data(self):
+        api = FakeApi()
+        server = SpectarrMcpServer(api)
+        server.call_tool("search_external_entries", {"project_id": "project-1", "after": "cursor"})
+        server.call_tool("resolve_external_entry", {"entry_id": "entry-1"})
+        self.assertEqual(api.calls, [
+            ("GET", "/api/v1/external-entries", {"project_id": "project-1", "limit": 50, "after": "cursor"}),
+            ("GET", "/api/v1/external-entries/entry-1/access", None),
+        ])
+        with self.assertRaises(ValueError):
+            server.call_tool("search_external_entries", {"project_id": "project-1", "query": 5})
+        with self.assertRaises(ValueError):
+            server.call_tool("resolve_external_entry", {"entry_id": "../escape"})
+
+    def test_discovery_and_resolver_use_read_api(self) -> None:
+        api = FakeApi()
+        server = SpectarrMcpServer(api)
+        server.call_tool("list_projects", {})
+        server.call_tool("list_experiments", {"project_id": "project-1"})
+        server.call_tool("resolve_artifact", {"artifact_id": "artifact-1"})
+        self.assertEqual(api.calls, [
+            ("GET", "/api/v1/projects", None),
+            ("GET", "/api/v1/experiments", {"project_id": "project-1"}),
+            ("GET", "/api/v1/artifacts/artifact-1/access", None),
+        ])
+
+    def test_search_passes_scope_and_pagination(self) -> None:
+        api = FakeApi()
+        SpectarrMcpServer(api).call_tool("search_runs", {
+            "project_id": "project-1", "experiment_id": "experiment-1",
+            "sample_id": "sample-1", "offset": 25, "limit": 10,
+        })
+        self.assertEqual(api.calls[0][2], {
+            "query": None, "project_id": "project-1", "experiment_id": "experiment-1",
+            "sample_id": "sample-1", "offset": 25, "limit": 10, "page": True,
+        })
+
+    def test_invalid_discovery_arguments_never_reach_api(self) -> None:
+        api = FakeApi()
+        server = SpectarrMcpServer(api)
+        for arguments in ({"offset": -1}, {"limit": 101}, {"limit": True}, {"query": []}, {"project_id": ".."}):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                server.call_tool("search_runs", arguments)
+        for value in (None, True, ".", "..", "../secret", "a/b"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                server.call_tool("resolve_artifact", {"artifact_id": value})
+        self.assertEqual(api.calls, [])
+
     def test_initialize_advertises_resources_and_tools(self) -> None:
         server = SpectarrMcpServer(FakeApi())
         result = server.dispatch("initialize", {"protocolVersion": "2025-06-18"})
@@ -168,7 +222,7 @@ class SpectarrMcpServerTests(unittest.TestCase):
         self.assertEqual(api.calls[0][0], "GET")
         self.assertEqual(
             api.calls[0][2],
-            {"query": "hela", "offset": 0, "limit": 25},
+            {"query": "hela", "offset": 0, "limit": 25, "page": True},
         )
 
     def test_processing_resources_and_read_tools_use_batch_api(self) -> None:
@@ -350,6 +404,36 @@ class SpectarrMcpServerTests(unittest.TestCase):
             api.calls[0],
             ("PATCH", "/api/v1/automation-rules/rule-1", {"enabled": False}),
         )
+
+    def test_http_rejects_browser_attacks_and_enforces_configured_token(self):
+        api = FakeApi()
+        server = ThreadingHTTPServer(('127.0.0.1', 0), make_http_handler(SpectarrMcpServer(api)))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            payload = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}).encode()
+            cases = [({'Origin': 'https://attacker.example'}, 403), ({'Origin': 'null'}, 403), ({'Host': 'rebind.example'}, 403), ({'Sec-Fetch-Site': 'cross-site'}, 403), ({'Content-Type': 'text/plain'}, 415)]
+            for headers, status in cases:
+                with self.subTest(headers=headers):
+                    req = request.Request(f'http://127.0.0.1:{server.server_port}/mcp', data=payload, headers={'Content-Type': 'application/json', **headers})
+                    with self.assertRaises(error.HTTPError) as raised:
+                        request.urlopen(req, timeout=2)
+                    self.assertEqual(raised.exception.code, status)
+                    raised.exception.close()
+            with patch.dict('os.environ', {'SPECTARR_MCP_TOKEN': 'private-token'}):
+                req = request.Request(f'http://127.0.0.1:{server.server_port}/mcp', data=payload, headers={'Content-Type': 'application/json'})
+                with self.assertRaises(error.HTTPError) as raised:
+                    request.urlopen(req, timeout=2)
+                self.assertEqual(raised.exception.code, 403)
+                raised.exception.close()
+                req.add_header('Authorization', 'Bearer private-token')
+                with request.urlopen(req, timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+            self.assertEqual(api.calls, [])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
     def test_streamable_http_post(self) -> None:
         try:

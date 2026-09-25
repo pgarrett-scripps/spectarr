@@ -28,6 +28,7 @@ export function MoveRunsDialog({ runIds, onClose, onMoved }: MoveRunsDialogProps
 
   const move = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (submitting) return
     if (!selectedExperimentId) {
       setError('Choose a destination experiment')
       return
@@ -45,17 +46,19 @@ export function MoveRunsDialog({ runIds, onClose, onMoved }: MoveRunsDialogProps
   }
 
   return <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="move-runs-title">
-    <div className="modal-header"><div><h2 id="move-runs-title">Move {runIds.length === 1 ? 'run' : `${runIds.length} runs`}</h2><p>Artifacts and processing history remain attached.</p></div><button className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
-    {destinationProjects.length === 0 ? <div className="token-result"><strong>No destination projects</strong><p>Create a scientific project and experiment before assigning inbox runs.</p><Link className="button button-primary" to="/projects" onClick={onClose}>Open Projects</Link></div> : <form onSubmit={event => void move(event)}>
-      <div className="modal-fields">
+    <div className="modal-header"><div><h2 id="move-runs-title">Move {runIds.length === 1 ? 'run' : `${runIds.length} runs`}</h2><p>Artifacts and processing history remain attached.</p></div><button className="icon-button" aria-label="Close" disabled={submitting} onClick={onClose}>×</button></div>
+    {(projects.error || experiments.error) && <div className="modal-error" role="alert">{projects.error ?? experiments.error}<button className="button button-secondary" onClick={() => { projects.refresh()
+      experiments.refresh() }}>Retry</button></div>}
+    {projects.loading || experiments.loading ? <p>Loading destinations</p> : destinationProjects.length === 0 ? <div className="token-result"><strong>No destination projects</strong><p>Create a scientific project and experiment before assigning inbox runs.</p><Link className="button button-primary" to="/projects" onClick={onClose}>Open Projects</Link></div> : <form onSubmit={event => void move(event)}>
+      <fieldset className="modal-fields form-fields" disabled={submitting}>
         <label><span>Project</span><select aria-label="Destination project" value={selectedProjectId} onChange={event => {
           setProjectId(event.target.value)
           setExperimentId('')
         }}>{destinationProjects.map(project => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
         <label><span>Experiment</span><select aria-label="Destination experiment" value={selectedExperimentId} onChange={event => setExperimentId(event.target.value)} required>{projectExperiments.length === 0 && <option value="">No experiments in this project</option>}{projectExperiments.map(experiment => <option value={experiment.id} key={experiment.id}>{experiment.name}</option>)}</select></label>
-      </div>
-      {(error || projects.error || experiments.error) && <div className="modal-error" role="alert">{error ?? projects.error ?? experiments.error}</div>}
-      <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={submitting || !selectedExperimentId}>{submitting ? 'Moving' : 'Move runs'}</button></div>
+      </fieldset>
+      {error && <div className="modal-error" role="alert">{error}</div>}
+      <div className="modal-actions"><button type="button" className="button button-secondary" disabled={submitting} onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={submitting || !selectedExperimentId}>{submitting ? 'Moving' : 'Move runs'}</button></div>
     </form>}
   </section></div>
 }
