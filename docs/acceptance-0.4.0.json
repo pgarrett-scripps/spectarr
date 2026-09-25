@@ -1,0 +1,116 @@
+{
+  "cancellation": {
+    "batch_id": "de7b7c54-8083-4106-84e3-ce17fd55cd4d",
+    "cancelled_job_id": "f1bc445c-3e5e-4ce4-968f-70261d17e01e",
+    "output_artifact_id": "184c4948-cd7c-4f53-86d9-c28ab893e7c8",
+    "retried_job_id": "f1bc445c-3e5e-4ce4-968f-70261d17e01e"
+  },
+  "fixtures": {
+    "bruker": {
+      "extraction": {
+        "provider": "openmassspec",
+        "spectra_count": 4698,
+        "warnings": [
+          "Isolation window details reached the configured storage limit"
+        ]
+      },
+      "path": "/imports/example-dda.d",
+      "run_id": "f9d02664-a96f-41f4-95a8-200fc1613bdb",
+      "source_artifact_id": "eddb5036-ec70-49ea-aba3-1027c151eb42",
+      "source_bytes": 62132225,
+      "source_sha256": "408ac611713b18688e790e46266956d68aa1872f621a1d56fce9bdff48baf9fd"
+    },
+    "large_raw": {
+      "extraction": {
+        "provider": "spectarr-mzml",
+        "spectra_count": 5445,
+        "warnings": [
+          "Isolation window details reached the configured storage limit"
+        ]
+      },
+      "path": "/imports/large-vendor.raw",
+      "run_id": "2924ab90-b3d2-418b-beab-3354aacf6ec3",
+      "source_artifact_id": "4ca87f98-b203-44a2-953d-a8b2631d9995",
+      "source_bytes": 35488261,
+      "source_sha256": "b8f8fe0986a03388ac582bd8a49812a8ad8d78d3cec70bce01c345774a13e3b0"
+    },
+    "thermo": {
+      "extraction": {
+        "provider": "openmassspec",
+        "spectra_count": 10,
+        "warnings": []
+      },
+      "path": "/imports/angiotensin.raw",
+      "run_id": "e6b410ca-94a7-4e82-a74a-518f87d28a8f",
+      "source_artifact_id": "d7759a9b-4518-45fd-864e-7db952d91095",
+      "source_bytes": 419028,
+      "source_sha256": "1d953ea6e7d5134cfdfb70c4662e2e4fafe32b50830e3d7dbe4b3809231e0c2b"
+    }
+  },
+  "open_source": {
+    "artifact_id": "2d1fda0e-c144-48c2-b5e2-da48ac2163bc",
+    "extraction": {
+      "provider": "spectarr-mzml",
+      "spectra_count": 10,
+      "warnings": []
+    },
+    "run_id": "bc2a6ae3-ad06-4bbb-888f-1edf850bea7c",
+    "sha256": "4aa64aed8cef4a76a6e253161f70423e5134c5c5695d22b931911b5238de5a9b"
+  },
+  "project_id": "beeb4602-886a-489a-9b95-91cc57b6e529",
+  "reclamation": {
+    "preview": {
+      "artifact_count": 1,
+      "blocked_count": 0,
+      "format_counts": {
+        "mgf": 1
+      },
+      "reclaimable_bytes": 45103
+    },
+    "regenerated": {
+      "artifact_id": "c4f77a9a-b505-47e8-a3f8-1056cdf6a127",
+      "byte_size": 45103,
+      "job_id": "73246a99-d918-46a2-8d92-0cd7be6ce3eb",
+      "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2"
+    },
+    "result": {
+      "artifact_count": 1,
+      "blocked_count": 0,
+      "format_counts": {
+        "mgf": 1
+      },
+      "reclaimable_bytes": 45103
+    }
+  },
+  "status": "ok",
+  "thermo_outputs": {
+    "MGF": {
+      "artifact_id": "67f3b457-7445-4aeb-9f38-116efa7767e4",
+      "byte_size": 45103,
+      "job_id": "542235fc-6499-4560-ba3d-3b24b76b9a3a",
+      "sha256": "30e2d8cd702892fccc512e6d2c62d894cb9c2da93e1dddb99f05702e136dfef2"
+    },
+    "MS2": {
+      "artifact_id": "fa18d399-2370-4153-9e89-c45e9f23787c",
+      "byte_size": 378243,
+      "job_id": "f51af47a-187b-435f-8bff-3e72e2b3e272",
+      "sha256": "b27e0e26447a8aca5ec3d5120f6f00521d267be11e4fe1b97021393e24e6836d"
+    },
+    "mzML": {
+      "artifact_id": "efc6e1ed-b438-4ee8-bd8c-09128a5f0459",
+      "byte_size": 227884,
+      "job_id": "50857660-ac78-484c-8681-7bc860e13679",
+      "sha256": "4aa64aed8cef4a76a6e253161f70423e5134c5c5695d22b931911b5238de5a9b"
+    },
+    "mzXML": {
+      "artifact_id": "6dec0c14-6821-46d3-8c10-113b4a024f1e",
+      "byte_size": 329563,
+      "job_id": "c731126a-667c-4dea-a85b-18127d0b579e",
+      "sha256": "e7ad8691d1dc34fd5ecc1b98b8b11ec2f0021988ac2a19aa59cec90a5d9d66bc"
+    }
+  },
+  "application_commit": "d2f06e1deddb2e2ca4011b662541c187695a2732",
+  "image_id": "sha256:70b2b4bf49ca5c0c56992fbcaf8c774f995ef16a05b1e40144224815157c74bf",
+  "proteowizard_image": "proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses:skyline_26.1.0.266-578b175@sha256:448a833eb92eac2ca731f2461c046963c0c2afafb3550b4dfb6fc3914cec7b0e",
+  "msconvert_version": "3.0.26266"
+}

@@ -223,7 +223,9 @@ def test_restore_cleanup_failure_remains_tracked_for_retry(service, monkeypatch)
 
 
 @pytest.mark.timeout(45)
-def test_real_restore_boots_isolated_api_and_detects_corruption(service):
+@pytest.mark.parametrize('trusted_host', ['localhost', 'massspec.example'])
+def test_real_restore_boots_isolated_api_and_detects_corruption(service, monkeypatch, trusted_host):
+    monkeypatch.setenv('SPECTARR_TRUSTED_HOSTS', json.dumps([trusted_host]))
     original_database = service.database.read_bytes()
     service.request('backup')
     service.tick()

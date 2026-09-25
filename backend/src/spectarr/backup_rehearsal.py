@@ -27,7 +27,7 @@ def main() -> int:
     from fastapi.testclient import TestClient
     from .main import app
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.get("/api/v1/system/health", headers={"X-Spectarr-Worker-Token": worker_token})
         response.raise_for_status()
         if response.json().get("database") != "ok" or response.json().get("storage") != "ok":

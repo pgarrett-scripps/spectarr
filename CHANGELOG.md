@@ -4,6 +4,8 @@ All notable changes to MassSpec will be documented in this file. Releases follow
 
 ## 0.4.0 - 2026-09-25
 
+- Use loopback for isolated backup restore checks so production hostname restrictions do not reject valid backups.
+
 - Migrate Python to 3.14, SQLAlchemy to 2.1, TypeScript to 7, Vitest to 5, Node to 26, and the reader runtime to .NET 10.
 - Pin the September stable ProteoWizard build, verify vendor conversions and read-only discovery, and close SQLite backup connections explicitly.
 
