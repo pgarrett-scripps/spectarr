@@ -35,7 +35,7 @@ class FakeApi:
         return {'state': body['status']}, {}
 
 
-class CatalogTests(unittest.TestCase):
+class CatalogFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.path = Path(self.tmp.name)
@@ -50,6 +50,9 @@ class CatalogTests(unittest.TestCase):
         self.state.close()
         self.tmp.cleanup()
 
+
+@unittest.skipUnless(os.name == 'posix', 'Catalog scans require a qualified Linux filesystem')
+class CatalogTests(CatalogFixture):
     def test_catalog_resumes_after_lost_response_without_uploading(self):
         source = self.root / 'one.mgf'
         source.write_bytes(b'original')
@@ -121,6 +124,8 @@ class CatalogTests(unittest.TestCase):
         self.assertNotEqual(before, self.api.results[-1]['sha256'])
         self.assertEqual(fact['kind'], 'bundle')
 
+
+class SourceSafetyTests(CatalogFixture):
     def test_published_marker_is_required_even_after_stability(self):
         source = self.root / 'one.mgf'
         source.write_bytes(b'data')
@@ -147,7 +152,14 @@ class CatalogTests(unittest.TestCase):
         bundle.mkdir()
         (bundle / 'z.bin').write_bytes(b'z')
         (bundle / 'Z.bin').write_bytes(b'Z')
+        if len(list(bundle.iterdir())) != 2:
+            self.skipTest('This filesystem does not support case-distinct filenames')
         scanner = AcquisitionScanner(self.config)
         item = scanner.hash_candidate(scanner.discover()[0])
         self.assertEqual([f['path'] for f in item.manifest['files']], ['Z.bin', 'z.bin'])
         self.assertEqual(json.loads(json.dumps(item.manifest))['byte_size'], 2)
+
+    @unittest.skipIf(os.name == 'posix', 'Unsupported-platform check runs outside POSIX')
+    def test_catalog_identity_rejects_unsupported_platform(self):
+        with self.assertRaisesRegex(OSError, 'requires a qualified Linux filesystem'):
+            root_identity(self.root)
