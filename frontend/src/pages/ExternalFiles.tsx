@@ -97,7 +97,7 @@ export function ExternalInventory({ projectId }: { projectId: string }) {
     </nav>
     {error && <ApiErrorBanner message={error} onRetry={() => void load()} />}
     {notice && <p role="status">{notice}</p>}
-    <Panel title="Registered folders" subtitle="Scans are requested explicitly. External file contents are not included in MassSpec backups.">
+    <Panel title="Registered folders" subtitle="Scans are requested explicitly. External file contents are not included in Spectarr backups.">
       {roots.map(root => <div className="external-root" key={root.id}>
         <div><strong>{root.label}</strong><p><code>{root.path}</code></p><small>{root.enabled ? words(root.status) : 'Tracking paused'} · {root.freshness} observation</small>{root.error && <p role="status">{root.error}</p>}</div>
         <div className="page-actions">

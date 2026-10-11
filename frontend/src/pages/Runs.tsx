@@ -106,7 +106,7 @@ export function Runs({ inbox = false }: { inbox?: boolean }) {
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = 'massspec-runs.csv'
+      anchor.download = 'spectarr-runs.csv'
       document.body.append(anchor)
       anchor.click()
       anchor.remove()

@@ -14,6 +14,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -904,15 +905,21 @@ def update_recipe(
         raise HTTPException(status.HTTP_409_CONFLICT, "Built-in profile names cannot be changed")
     if "parameters" in values and payload.parameters is not None:
         values["parameters"] = payload.parameters.model_dump(exclude_none=True)
-    next_parameters = values.get("parameters", recipe.parameters)
-    next_format = values.get("output_format", recipe.output_format)
-    if next_parameters.get("preset"):
-        expected_format = "MGF" if next_parameters["preset"] == "casanovo_mgf" else "mzML"
-        if next_format != expected_format:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                f"{next_parameters['preset']} produces {expected_format}",
-            )
+    merged_definition = {
+        name: values.get(name, getattr(recipe, name))
+        for name in RecipeCreate.model_fields
+    }
+    if payload.parameters is not None:
+        merged_definition["parameters"] = payload.parameters
+    try:
+        validated = RecipeCreate.model_validate(merged_definition)
+    except ValidationError as error:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            error.errors(include_context=False, include_input=False),
+        ) from error
+    if payload.parameters is not None:
+        values["parameters"] = validated.parameters.model_dump(exclude_none=True)
     changed_definition = any(
         key in values and values[key] != getattr(recipe, key)
         for key in {"output_format", "parameters"}

@@ -165,7 +165,7 @@ function SecuritySettings() {
     </Panel>}
     {creating && <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="new-token-title">
       <div className="modal-header"><div><h2 id="new-token-title">Create API token</h2><p>The secret is shown only once.</p></div><button className="icon-button" aria-label="Close" disabled={submitting} onClick={() => setCreating(false)}>×</button></div>
-      {secret ? <div className="token-result"><strong>Token secret</strong><p>Store this credential securely. MassSpec cannot display it again.</p><div className="endpoint"><code>{secret}</code><button className="icon-button" aria-label="Copy token" onClick={() => {
+      {secret ? <div className="token-result"><strong>Token secret</strong><p>Store this credential securely. Spectarr cannot display it again.</p><div className="endpoint"><code>{secret}</code><button className="icon-button" aria-label="Copy token" onClick={() => {
         setError(null)
         void navigator.clipboard.writeText(secret).then(() => setCopied(true)).catch(reason => setError(reason instanceof Error ? reason.message : 'Could not copy to the clipboard'))
       }}>{copied ? <Check size={15} /> : <Clipboard size={15} />}</button></div>{error && <div className="modal-error" role="alert">{error}</div>}<button className="button button-primary" onClick={() => setCreating(false)}>Done</button></div> : <form onSubmit={event => void create(event)}><fieldset className="modal-fields form-fields" disabled={submitting}>

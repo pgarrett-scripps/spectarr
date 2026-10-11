@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-11",
+  "version": "0.5.0",
+  "status": "local candidate, unpublished",
+  "image": "sha256:026d4689a3837d418cee4e48256eadac36bd0a64a5ba8a4e1300ce8e951e3cee",
+  "local_image_tag": "spectarr:0.5.0-candidate",
+  "dependency_sources": {
+    "MSCONVERT_CLI_REPOSITORY": "pgarrett-scripps/msconvert-cli",
+    "MSCONVERT_CLI_REF": "3fed45ea625a36b1acd9204ab8963d1b8eb58d8a",
+    "MZMLPY_REPOSITORY": "tacular-omics/mzmlpy",
+    "MZMLPY_REF": "cbc1b3d1a5998f25ab16801aa051cf54c2dd0ac0",
+    "SPXTACULAR_REPOSITORY": "tacular-omics/spxtacular",
+    "SPXTACULAR_REF": "bbbd7fca6c7b5c770c5d50a006399315df70cff2"
+  },
+  "native_binary_sha256": "2d3143ce5818f0797172a8483b051d13da08e8be0700be090ba55ddb7bc63bf0",
+  "backend": {
+    "passed": 249,
+    "coverage_percent": 89.08
+  },
+  "dashboard": {
+    "full_suite_passed": 132,
+    "subsequent_focused_passed": 25,
+    "typecheck": "passed",
+    "lint": "passed",
+    "build": "passed"
+  },
+  "services": {
+    "agent": {
+      "passed": 43,
+      "skipped": 1
+    },
+    "converter": {
+      "passed": 46,
+      "real_native_checks": 5
+    },
+    "extractor": 35,
+    "mcp": 32,
+    "webhooks": 20
+  },
+  "initial_integration": {
+    "status": "passed",
+    "image": "sha256:fd904761c1ca5a29c3db0fbedf46ff187ddd08e131e7203ea291cdc7dc627d6e",
+    "browser_passed": 11,
+    "browser_skipped": 15
+  },
+  "final_release_rehearsal": {
+    "status": "passed",
+    "native_conversion": "passed",
+    "maintenance": "passed",
+    "restart": "passed",
+    "backup_and_independent_restore": "passed",
+    "browser_passed": 10,
+    "browser_skipped": 16
+  },
+  "npm_audit_vulnerabilities": 0,
+  "image_security": {
+    "image": "sha256:026d4689a3837d418cee4e48256eadac36bd0a64a5ba8a4e1300ce8e951e3cee",
+    "findings_by_severity": {
+      "LOW": 61,
+      "HIGH": 44,
+      "MEDIUM": 58,
+      "UNKNOWN": 1
+    },
+    "fixable_by_severity": {},
+    "python_audit_exit_code": 0,
+    "local_source_packages_excluded_from_pypi_audit": [
+      {
+        "name": "msconvert-cli",
+        "version": "1.2.0"
+      },
+      {
+        "name": "spectarr",
+        "version": "0.5.0"
+      },
+      {
+        "name": "spectarr-converter",
+        "version": "0.5.0"
+      },
+      {
+        "name": "spectarr-extractor",
+        "version": "0.5.0"
+      },
+      {
+        "name": "spectarr-mcp",
+        "version": "0.5.0"
+      },
+      {
+        "name": "spectarr-webhook-worker",
+        "version": "0.5.0"
+      }
+    ],
+    "note": "An empty fixable count does not mean the image has no vulnerabilities. Review the complete report."
+  },
+  "remaining_gates": [
+    "hosted CI and Windows installer qualification",
+    "full real-vendor qualification",
+    "public image and release promotion"
+  ]
+}

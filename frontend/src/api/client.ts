@@ -617,6 +617,7 @@ function normalizeProfile(value: unknown): ProcessingProfile {
   return {
     id: textValue(item.id),
     name: textValue(item.name, 'Unnamed profile'),
+    converter: textValue(item.converter, 'msconvert'),
     description: textValue(item.description) || undefined,
     outputFormat: normalizeFormat(item.output_format ?? item.outputFormat) as ConversionFormat,
     revision: numberValue(item.revision, 1),

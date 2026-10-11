@@ -1,39 +1,34 @@
-# MassSpec 0.4.0
+# Spectarr 0.5.0
 
-MassSpec 0.4.0 adds a calmer research interface, public dataset imports, and optional read-only discovery of acquisitions stored outside the managed library. Existing Spectarr package names, configuration keys, and storage paths remain compatible.
+Spectarr 0.5.0 simplifies installation, adds an optional native conversion backend, and updates its reader and application dependencies.
 
 ## New and improved
 
-- Browse projects and runs in a focused academic interface with clearer processing status, responsive tables, and improved keyboard navigation.
-- Find public PRIDE datasets, select acquisitions, and manage resumable downloads with configurable concurrency, cancellation, retry, and provenance. Preview and import available SDRF metadata.
-- Register explicit external folders for read-only inventory. Preserve content revisions and location history, verify relocations, and import selected acquisitions into managed storage when required.
-- Let agents locate managed and external files through read-only MCP tools, with project permissions and host-scoped paths.
-- Preserve native Thermo and Bruker spectrum identities and peak arrays. Support Spxtacular 0.9 and mzMLPy 0.10 schemas and compressed-file access.
+- Clearer setup, first-import, HTTPS, storage, update, and troubleshooting guides, with screenshots from the application.
+- Consistent Spectarr branding across the dashboard and public documentation.
+- Independent loopback binding for MCP, exact reverse-proxy origin configuration, automatic persistent secrets, and early failure for missing Docker sockets.
+- Explicit `msconvert-rs` recipes with capability checks, preservation policies, resource limits, cancellation, source and output verification, and executable hashes in provenance.
+- Native recipes default to 64-bit arrays. Unsupported settings fail during recipe creation or update.
+- Optional `compose.native.yaml` mounts a compatible administrator-supplied native executable read-only. ProteoWizard remains the default converter.
 
-## Reliability and dependencies
+## Dependency updates
 
-Python 3.14, SQLAlchemy 2.1, TypeScript 7, Vitest 5, Node 26, and .NET 10 replace the older runtime and development stack. ProteoWizard msconvert 3.0.26266 is pinned by immutable image digest. Upstream compatibility requirements remain respected, including the TypeScript API bridge used by ESLint.
+mzMLPy 0.10.1 improves activation metadata, possible precursor charges, chromatogram recognition, and unsupported imzML handling. Spxtacular 0.9.2 corrects MS2 output, native-ID preservation, isotope envelopes, and fragment annotation.
 
-Browser request checks, webhook DNS handling, administrator bootstrap, XML parsing, and converter isolation are hardened. Backup operations now explicitly close SQLite connections. Processing, uploads, maintenance, and polling recover more reliably from interruptions.
+Compatible Python and dashboard dependencies are refreshed, including FastAPI 0.142.4. The source-map-js audit finding is fixed. The Node 26, Python 3.14, Docker 29 CLI, and .NET 10 base images use refreshed immutable digests. Backend dependency automation now uses uv so manifest and lockfile updates travel together.
 
-Local qualification passed 506 component tests, 10 browser checks, native vendor reader checks, simulated instrument uploads and conversions, read-only discovery scenarios, and independent backup restoration. Hosted release gates separately check Linux integration, packaging, the Windows installer, and the release image before promotion.
+## Upgrading
 
-## Upgrade and operational notes
+Back up and verify the installation before updating. This release adds no database migration. Image updates do not replace your Compose file, so merge the new deployment configuration while retaining your storage paths and secrets.
 
-Back up and verify the existing installation before upgrading. Database migrations add repository-download and external-inventory records. To roll back to an earlier release, restore the matching backup rather than assuming database downgrade support.
+MCP defaults to loopback independently of dashboard access. Configure `SPECTARR_MCP_BIND_ADDRESS` explicitly if you intentionally expose it. Configure exact trusted hosts and HTTPS origins for reverse proxies.
 
-Read-only inventory is optional and does not back up external files. An offline or moved location remains recorded with its availability state. Managed imports retain immutable source acquisitions.
+The native executable is optional and is not bundled in the application image. Vendor and acquisition-mode qualification remains limited. Unsupported operations fail without changing to another converter automatically.
 
-Instrument completion detection remains a heuristic. Files paused longer than the stability window may look complete without an explicit producer marker. Validate actual instrument write behavior before unattended collection. Linux simulation does not qualify a physical instrument or every Windows and network-share configuration.
+## Operational limits
 
-## Known security limitations
+Linux x86-64 with Docker Engine and Compose v2 remains the tested deployment target. Docker socket access is privileged. The ProteoWizard vendor image retains the security limitations described in the 0.4.0 release. Updating the application does not resolve those vendor-image findings. The application image audit reports no fixable vulnerabilities, but retains OS findings without available fixes. See the candidate acceptance record for the scan scope and exact image.
 
-The main image scan has no critical or fixable findings, but retains reported OS vulnerabilities without available fixes. The latest upstream ProteoWizard image still uses Ubuntu 20.04 and includes bundled Java components with reported critical and high findings. The unsupported OS also limits scanner coverage. Conversion jobs run with networking disabled, dropped capabilities, no new privileges, and read-only inputs. These controls do not establish that the remaining findings are harmless. Docker socket access remains a privileged capability.
+Instrument completion detection remains a heuristic. Validate actual acquisition behavior before unattended collection. The Windows acquisition-agent installer is unsigned. Verify its attached SHA-256 checksum before installation.
 
-See the bundled dependency migration report for versions, evidence, compatibility exceptions, and the full limitations. The release does not claim to eliminate all security findings.
-
-## Installation
-
-Use the release archive for Compose configuration, the acquisition-agent wheel, backup and restore scripts, and operating guides. The versioned image is `ghcr.io/pgarrett-scripps/spectarr:0.4.0`. The dashboard remains available at http://localhost:3280/ with default loopback bindings.
-
-The Windows acquisition-agent installer is unsigned. Windows may show an unknown-publisher warning. Verify the attached SHA-256 checksum before installation.
+Release promotion remains gated on the hosted Linux, Windows packaging, and exact-image rehearsal checks.

@@ -75,6 +75,12 @@ fi
 } > "$env_file"
 
 compose=(docker compose --project-name "$project_name" --env-file "$env_file" -f "$compose_file")
+if [[ -n ${SPECTARR_MSCONVERT_RS_TEST_BINARY:-} ]]
+then
+  export SPECTARR_MSCONVERT_RS_BINARY="$SPECTARR_MSCONVERT_RS_TEST_BINARY"
+  export SPECTARR_SMOKE_NATIVE=true
+  compose+=(-f "$(dirname "$compose_file")/compose.native.yaml")
+fi
 "${compose[@]}" config --quiet
 if [[ ${SPECTARR_REHEARSAL_PULL:-true} == "true" ]]
 then
@@ -144,5 +150,12 @@ export SPECTARR_DATA_DIR="$rehearsal_root/data"
 backup_dir=$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d | head -1)
 "$repo_root/scripts/verify-backup.sh" "$backup_dir"
 "$repo_root/scripts/restore-test.sh" "$backup_dir" "$restore_root"
+
+if [[ ${SPECTARR_RUN_E2E:-false} == "true" ]]
+then
+  SPECTARR_E2E_URL="http://127.0.0.1:$dashboard_port" \
+  SPECTARR_E2E_PASSWORD="$smoke_password" \
+  npm run --prefix "$repo_root/frontend" test:e2e -- --workers=1
+fi
 
 echo "Release rehearsal passed for Spectarr $version"

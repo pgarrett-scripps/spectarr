@@ -238,6 +238,7 @@ export interface AutomationRule {
 export interface ProcessingProfile {
   id: string
   name: string
+  converter?: string
   description?: string
   outputFormat: ConversionFormat
   revision: number

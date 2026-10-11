@@ -1,6 +1,6 @@
 # Contributing
 
-Spectarr is organized as a small set of independently testable services.
+Spectarr is organized as a small set of independently testable services. See the [development guide](docs/development.md) for source dependencies and environment setup.
 
 - `backend` owns the data model, ingest, artifact storage, and REST API
 - `frontend` owns the browser dashboard

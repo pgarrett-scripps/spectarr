@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -164,19 +165,56 @@ class ThresholdFilter(BaseModel):
 ConversionFilter = PeakPickingFilter | MsLevelFilter | ThresholdFilter
 
 
+class ConversionLossPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    deny: list[Literal[
+        "unqualified-calibration", "precision-reduction", "mobility-collapse",
+        "chromatogram-loss", "reduced-text-metadata", "experimental-processing",
+    ]] = Field(default_factory=list)
+    require: list[Literal[
+        "polarity", "precursor-isolation", "precursor-target", "collision-energy",
+        "precursor-charge",
+    ]] = Field(default_factory=list)
+
+
 class ConversionParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     preset: Literal["sage", "biosaur", "blitzff", "casanovo", "casanovo_mgf"] | None = None
     filters: list[ConversionFilter] = Field(default_factory=list)
     mz_precision: Literal[32, 64] = 64
     intensity_precision: Literal[32, 64] = 32
     compression: Literal["none", "zlib", "numpress"] = "zlib"
+    compression_level: int | None = Field(default=None, ge=0, le=9, strict=True)
     indexed: bool = True
+    stored_centroids: bool = Field(default=False, strict=True)
+    allow_experimental: bool = Field(default=False, strict=True)
+    allow_approximate_calibration: bool = Field(default=False, strict=True)
+    loss_policy: ConversionLossPolicy = Field(default_factory=ConversionLossPolicy)
+    mobility_collapse: bool = Field(default=False, strict=True)
+    bruker_frames: bool = Field(default=False, strict=True)
+    require_retention_time: bool = Field(default=False, strict=True)
+    require_mobility: bool = Field(default=False, strict=True)
+    timeout_seconds: int = Field(default=0, ge=0, strict=True)
+    max_memory_mb: int = Field(default=0, ge=0, strict=True)
+    max_temp_bytes: int = Field(default=0, ge=0, strict=True)
+    max_decompressed_bytes: int = Field(default=0, ge=0, strict=True)
+    max_peaks_per_spectrum: int = Field(default=0, ge=0, strict=True)
+
+    @model_validator(mode="after")
+    def validate_compression_level(self) -> ConversionParameters:
+        if self.compression_level is not None and self.compression != "zlib":
+            raise ValueError("compression_level requires zlib compression")
+        if self.allow_approximate_calibration and not self.allow_experimental:
+            raise ValueError("allow_approximate_calibration requires allow_experimental")
+        return self
 
 
 class RecipeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    converter: str = "msconvert"
+    converter: Literal["msconvert", "msconvert-rs"] = "msconvert"
     converter_version: str | None = None
     output_format: Literal["mzML", "mzXML", "MGF", "MS2"]
     parameters: ConversionParameters = Field(default_factory=ConversionParameters)
@@ -184,6 +222,45 @@ class RecipeCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_preset_format(self) -> RecipeCreate:
+        native_controls = (
+            "stored_centroids", "allow_experimental", "allow_approximate_calibration",
+            "mobility_collapse", "bruker_frames", "require_retention_time",
+            "require_mobility", "timeout_seconds", "max_memory_mb",
+            "max_temp_bytes", "max_decompressed_bytes", "max_peaks_per_spectrum",
+        )
+        if self.converter != "msconvert-rs" and (
+            self.parameters.loss_policy.deny
+            or self.parameters.loss_policy.require
+            or any(getattr(self.parameters, name) for name in native_controls)
+        ):
+            raise ValueError("Native conversion policies require an explicit msconvert-rs recipe")
+        if self.converter == "msconvert-rs":
+            if "intensity_precision" not in self.parameters.model_fields_set:
+                self.parameters.intensity_precision = 64
+            if self.output_format == "mzXML":
+                raise ValueError("msconvert-rs supports mzML, MGF and MS2 output")
+            if self.parameters.preset:
+                raise ValueError("ProteoWizard presets cannot run on the native backend")
+            if self.parameters.compression == "numpress":
+                raise ValueError("Native backend does not support Numpress compression")
+            for item in self.parameters.filters:
+                if isinstance(item, PeakPickingFilter):
+                    raise ValueError("Native recipes require explicit stored_centroids instead of peak picking")
+                if isinstance(item, MsLevelFilter):
+                    levels = sorted(set(item.levels))
+                    if levels[0] < 1 or levels[-1] > 10 or levels != list(range(levels[0], levels[-1] + 1)):
+                        raise ValueError("Native MS levels must form a continuous range from 1 to 10")
+                if isinstance(item, ThresholdFilter):
+                    if item.threshold_type not in {"absolute", "count"} or item.orientation != "most-intense":
+                        raise ValueError("Native thresholds support absolute or count, most-intense only")
+                    if not math.isfinite(item.value) or item.value < 0:
+                        raise ValueError("Native threshold must be finite and nonnegative")
+                    if item.threshold_type == "count" and not item.value.is_integer():
+                        raise ValueError("Native peak count must be an integer")
+        if self.parameters.compression_level is not None and (
+            self.converter != "msconvert-rs" or self.output_format != "mzML"
+        ):
+            raise ValueError("compression_level requires an explicit msconvert-rs mzML recipe")
         expected = "MGF" if self.parameters.preset == "casanovo_mgf" else "mzML"
         if self.parameters.preset and self.output_format != expected:
             raise ValueError(f"{self.parameters.preset} produces {expected}")

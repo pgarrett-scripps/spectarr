@@ -17,7 +17,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "MassSpec"
+    app_name: str = "Spectarr"
     environment: str = "development"
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite:///./data/spectarr.db"
@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     @classmethod
     def require_sqlite(cls, value: str) -> str:
         if not value.startswith("sqlite:///"):
-            raise ValueError("MassSpec supports SQLite database URLs only")
+            raise ValueError("Spectarr supports SQLite database URLs only")
         return value
 
     @field_validator("library_link_mode")

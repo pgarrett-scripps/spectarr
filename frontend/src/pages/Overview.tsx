@@ -17,7 +17,7 @@ export function Overview() {
   const recentJobs = data?.jobs.slice(0, 4) ?? []
 
   return <>
-    <PageHeader title="MassSpec overview" description="Your acquisitions, research projects, and recent processing."
+    <PageHeader title="Spectarr overview" description="Your acquisitions, research projects, and recent processing."
       actions={canImport ? <Link className="button button-primary" to="/runs/import"><Plus size={16} /> Import data</Link> : undefined} />
     {resource.error && <ApiErrorBanner message={resource.error} onRetry={resource.refresh} />}
     {!data && !resource.error && <LoadingState label="Loading library overview" />}

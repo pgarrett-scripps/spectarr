@@ -38,6 +38,8 @@ class ProcessReport:
     command: tuple[str, ...] = ()
     tool_version: str | None = None
     cancelled: bool = False
+    execution_identity: str | None = None
+    native_report: dict | None = None
 
 
 class ConversionRunner(Protocol):
@@ -203,6 +205,7 @@ class ConversionService:
         allowed_source_roots: tuple[Path, ...],
         image: str = PINNED_DEFAULT_IMAGE,
         runner: ConversionRunner | None = None,
+        native_runner: ConversionRunner | None = None,
     ) -> None:
         self.scratch_root = scratch_root.resolve()
         self.allowed_source_roots = tuple(path.resolve() for path in allowed_source_roots)
@@ -210,6 +213,7 @@ class ConversionService:
             raise ValueError("At least one source root is required")
         self.image = self._validate_pinned_image(image)
         self.runner = runner or MsconvertCliRunner()
+        self.native_runner = native_runner
 
     def convert(self, request: ConversionRequest) -> ConversionResult:
         return self.convert_with_control(request)
@@ -226,12 +230,14 @@ class ConversionService:
         compiled_arguments: list[str] = []
         job_dir: Path | None = None
         report = ProcessReport(1, "", "")
+        backend = str((request.recipe_definition or {}).get("converter", "msconvert"))
         try:
             recipe = (
                 compile_recipe(request.recipe_definition, request.parameter_overrides)
                 if request.recipe_definition
                 else get_recipe(recipe_name)
             )
+            backend = recipe.converter
             compiled_arguments = list(recipe.arguments)
             source = self._resolve_source(request.source_path)
             job_dir = self._prepare_job_directory(request.job_id)
@@ -242,7 +248,11 @@ class ConversionService:
                 runtime_config = job_dir / "msconvert-config.txt"
                 shutil.copyfile(recipe.config_path, runtime_config)
                 runtime_recipe = replace(recipe, config_path=runtime_config)
-            report = self.runner.run(
+            runner = self.runner
+            if recipe.converter == "msconvert-rs":
+                from .native import NativeMsconvertRunner
+                runner = self.native_runner or NativeMsconvertRunner()
+            report = runner.run(
                 source,
                 output_dir,
                 runtime_recipe,
@@ -255,23 +265,29 @@ class ConversionService:
                 raise RuntimeError("Conversion was cancelled")
             if report.return_code != 0:
                 detail = report.stderr.strip() or report.stdout.strip()
-                message = f"msconvert exited with status {report.return_code}"
+                message = f"{backend} exited with status {report.return_code}"
                 if detail:
                     message = f"{message}: {detail[-4000:]}"
                 raise RuntimeError(message)
             if progress:
                 progress("validating", 0.9)
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Conversion was cancelled before output validation")
             outputs = self._discover_and_validate(output_dir, recipe.output_format, progress)
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Conversion was cancelled before publication")
             finished = datetime.now(timezone.utc)
             return ConversionResult(
                 job_id=request.job_id,
                 status="succeeded",
                 recipe=recipe_name,
-                image=self.image,
+                image=report.execution_identity or ("msconvert-rs" if backend == "msconvert-rs" else self.image),
                 started_at=started.isoformat(),
                 finished_at=finished.isoformat(),
                 duration_seconds=round(time.monotonic() - started_clock, 6),
                 converter_version=report.tool_version,
+                converter_backend=backend,
+                converter_report=report.native_report,
                 command=list(report.command),
                 arguments=compiled_arguments,
                 outputs=outputs,
@@ -288,11 +304,13 @@ class ConversionService:
                 job_id=request.job_id,
                 status="cancelled" if was_cancelled else "failed",
                 recipe=recipe_name,
-                image=self.image,
+                image=report.execution_identity or ("msconvert-rs" if backend == "msconvert-rs" else self.image),
                 started_at=started.isoformat(),
                 finished_at=finished.isoformat(),
                 duration_seconds=round(time.monotonic() - started_clock, 6),
                 converter_version=report.tool_version,
+                converter_backend=backend,
+                converter_report=report.native_report,
                 command=list(report.command),
                 arguments=compiled_arguments,
                 stdout=report.stdout,

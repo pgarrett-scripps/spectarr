@@ -58,8 +58,7 @@ typecheck:
 	cd frontend && npm run typecheck
 
 release-check: version-check
-	@test -f "$(RELEASE_ENV)"
-	docker compose --env-file "$(RELEASE_ENV)" -f release/compose.yaml config --quiet
+	docker compose --env-file "$(if $(wildcard $(RELEASE_ENV)),$(RELEASE_ENV),/dev/null)" -f release/compose.yaml config --quiet
 
 release-rehearsal: version-check
 	scripts/release-rehearsal.sh

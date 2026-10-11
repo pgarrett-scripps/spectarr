@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-ARG SPECTARR_NODE_IMAGE=node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80
-ARG SPECTARR_DOCKER_CLI_IMAGE=docker:29-cli@sha256:018edbc908e08fcc9dbf029c812c34251e9b4719e6f71ca0e5eae2a987d014ca
-ARG SPECTARR_DOTNET_RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:10.0@sha256:ff17a18b639a0327e52c7c296fa2e1abe6e03eb61d8121a8ef67cc6aa430a27e
-ARG SPECTARR_PYTHON_IMAGE=python:3.14-slim-trixie@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
+ARG SPECTARR_NODE_IMAGE=node:26-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
+ARG SPECTARR_DOCKER_CLI_IMAGE=docker:29-cli@sha256:1a4c7cb63513f349bdad01fcc6e0f3f2f67d37b9da86f14dc0d4a0942eecda00
+ARG SPECTARR_DOTNET_RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:10.0@sha256:b89586dc17781f25531909993658aa8161205ae38b8cec8847df4a8221a403d5
+ARG SPECTARR_PYTHON_IMAGE=python:3.14-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 
 FROM ${SPECTARR_NODE_IMAGE} AS dashboard-build
 WORKDIR /build/frontend
@@ -48,7 +48,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-      ca-certificates libgcc-s1 libicu76 libssl3t64 libstdc++6 tzdata zlib1g \
+      ca-certificates libgcc-s1 libicu76 liblzma5 libssl3t64 libstdc++6 tzdata zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
