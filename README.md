@@ -1,218 +1,63 @@
-# MassSpec
-
-Your mass spectrometry workspace. Formerly Spectarr. Existing package names, configuration keys, and storage paths remain compatible.
+# Spectarr
 
 ### A self-hosted home for mass spectrometry data
 
-MassSpec turns scattered instrument files into an organized, searchable workspace. Keep every original acquisition, inspect spectra in the browser, generate reproducible open formats, and automate intake from instrument computers.
+Find the original run. See the spectrum. Know how the processed file was made.
+
+Spectarr brings instrument files, projects, samples, and processing history into one searchable web app. Built for researchers and lab teams with data scattered across acquisition PCs, shared drives, and folders full of filenames.
+
+[Get started](#get-started) · [Documentation](docs/README.md) · [Releases](https://github.com/pgarrett-scripps/spectarr/releases) · [Report a bug](https://github.com/pgarrett-scripps/spectarr/issues)
 
 [![CI](https://github.com/pgarrett-scripps/spectarr/actions/workflows/ci.yml/badge.svg)](https://github.com/pgarrett-scripps/spectarr/actions/workflows/ci.yml)
 [![Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-![One container](https://img.shields.io/badge/deployment-one%20container-7c5cff)
+![Docker](https://img.shields.io/badge/deploy-Docker-2496ED)
 ![SQLite](https://img.shields.io/badge/database-SQLite-0f80cc)
 
-![MassSpec workspace overview](docs/assets/spectarr-overview.png)
+![A project in Spectarr with experiments and three demonstration acquisitions](docs/assets/spectarr-release-project.png)
 
-## Stop digging through instrument folders
+*Projects keep samples, source files, generated formats, and metadata together. Screenshot from the running app with demonstration data.*
 
-Mass spectrometry data tends to end up spread across acquisition PCs, network shares, processing folders, and personal naming systems. MassSpec gives a lab one place to answer the questions that should be easy:
+## From scattered files to a research library
 
-- Where is the original file for this run?
-- Which project and sample does it belong to?
-- Has it been converted to mzML or MGF?
-- What did the instrument actually record?
-- Can I trust the file and reproduce how a derivative was made?
+- **Find your data.** Group runs by project and experiment. Search by name, original filename, or checksum.
+- **Look inside a run.** Explore spectra and chromatograms without opening a separate desktop viewer.
+- **Keep the original.** Source acquisitions are checksummed and preserved. Derivatives keep their processing history.
+- **Make useful formats.** Generate mzML, mzXML, MGF, and MS2 with recorded conversion settings.
+- **Bring data in your way.** Upload in the browser, import public PRIDE datasets, or collect completed acquisitions with the Windows or Linux agent.
+- **Keep using your tools.** A readable file library, REST API, webhooks, and read-only MCP access connect Spectarr to the rest of your workflow.
 
-MassSpec stores source acquisitions as immutable, checksummed artifacts. It also creates a normal human-readable library, so existing search engines and analysis tools can keep working with ordinary files and folders.
+![Spectarr spectrum viewer with an indexed acquisition from the demo library](docs/assets/spectarr-release-spectra.png)
 
-## What you can do
+*Inspect spectra, filter scans, and follow the chromatogram in your browser.*
 
-### Organize projects and runs
+## Get started
 
-Browse from projects to experiments to individual runs. Search across the whole workspace, move inbox acquisitions into the right experiment, and keep source files, samples, processing history, and annotations together.
+You need a **Linux x86-64 server with Docker Engine and Docker Compose v2**. The app runs in one container with SQLite. Vendor conversion launches separate ProteoWizard containers through the Docker socket.
 
-Import several acquisitions at once with a shared project and experiment. Review filename-based run names, edit samples, follow each upload, and retry failed items without repeating completed imports. See [batch import](docs/batch-import.md).
-
-Download public PRIDE acquisitions directly to the server with **Online repository (PRIDE)**. Search filenames, select matching files in bulk, preview available SDRF sample metadata, and follow a persistent queue with parallel resumable transfers, cancellation, and retries. Two files download concurrently by default. Administrators can change the limit from 1 through 8 under **Settings → Downloads** without restarting. See [online dataset import](docs/online-dataset-import.md).
-
-### Inspect spectra without leaving the browser
-
-Filter large spectrum catalogs by scan, retention time, MS level, precursor, charge, peak count, and intensity. Select a row to view the spectrum and chromatogram without loading an entire run into the browser.
-
-![Indexed spectrum viewer showing a real Thermo RAW conversion](docs/assets/spectarr-spectrum-viewer.png)
-
-### Convert files reproducibly
-
-Generate mzML, mzXML, MGF, and MS2 with pinned ProteoWizard profiles. Every derivative records its source checksum, processing profile, tool version, parameters, and output checksum.
-
-### Collect data automatically
-
-Run the acquisition agent beside a Windows or Linux instrument computer. It waits for unchanged files and recognized temporary markers to clear, treats vendor directories as a single unit, resumes interrupted uploads, and keeps an offline queue when the server is unavailable. Inactivity is a completion heuristic, so each instrument's writing behavior needs validation. The [simulated instrument rehearsal](docs/simulated-instruments.md) exercises this boundary with real agent processes and interrupted HTTP transfers.
-
-### Automate the routine work
-
-Create rules that extract metadata or generate desired formats when a source arrives. Processing batches support previews, progress, cancellation, retry, and regeneration of reclaimed derivatives.
-
-### Connect other tools safely
-
-Use the REST API, signed webhooks, or the read-only MCP server to build search, reporting, and assistant workflows without giving those tools direct access to MassSpec's database.
-
-Find files by their original filenames, managed paths, stable IDs, or SHA-256 checksums. Agents can discover projects, page through scoped searches, and resolve an artifact to its current server location and download availability. The run's **Files** tab also provides **Locate file** and **Copy server path**. See the [file-discovery contract](docs/agent-file-discovery.md) for container path mapping and directory bundles.
-
-## One container, no database server
-
-MassSpec runs as one container with SQLite and filesystem storage. The dashboard, API, spectrum reader, metadata extractor, converter, webhook worker, and MCP server are packaged together.
-
-Your durable data lives in one directory:
-
-```text
-data/
-├── .spectarr/
-│   └── runtime-secrets.json
-├── spectarr.db
-└── storage/
-    ├── objects/
-    └── library/
-```
-
-Schedule verified backups to a separate directory under **Settings → Backups**, or use the included online backup tool. See [managed backup setup](docs/backup-integration.md). Restore tests boot the backup as a separate MassSpec instance and verify both the database and artifact storage.
-
-For faster browsing with experiments on a slower drive, Compose supports separate locations: set `SPECTARR_DATA_DIR` to a local SSD directory for the database and `SPECTARR_STORAGE_DIR` to the experiment storage directory. Project and run listings read database metadata. Opening spectra and downloading files still require access to the experiment drive. For an existing installation, stop the container and migrate the existing data before changing these paths so it reopens the same library.
-
-Overview, Projects, run lists, and run details reuse recent results during navigation while fetching current data in the background. This browser memory cache holds up to 50 pages for up to 60 seconds and clears on edits, account changes, or a browser reload. Project counts and sizes are calculated directly in the database without loading each run and artifact.
-
-See the [reliability and recovery guide](docs/reliability-and-recovery.md) for upload recovery, backup verification, restore isolation, and dependency maintenance.
-
-## Quick start
-
-MassSpec targets Linux x86-64 and requires Docker. Start the published image with one command:
-
-```console
-docker run -d --name spectarr --restart unless-stopped -p 127.0.0.1:3280:8000 --mount source=spectarr-data,target=/data --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock ghcr.io/pgarrett-scripps/spectarr:latest
-```
-
-Open [http://localhost:3280](http://localhost:3280) and create the first administrator account.
-
-MassSpec creates and persists its internal secrets automatically. The named volume keeps the database, files, and secrets across container replacement.
-
-For Compose, download the standalone file and start it. No environment file is required:
+In a new directory on your server:
 
 ```bash
-curl -LO https://github.com/pgarrett-scripps/spectarr/releases/latest/download/compose.yaml
-docker compose up -d
+mkdir spectarr && cd spectarr
+curl -fL -o compose.yaml https://github.com/pgarrett-scripps/spectarr/releases/latest/download/compose.yaml
+docker compose up -d --wait
 ```
 
-The optional GitHub release bundle contains backup and restore tools, smoke fixtures, and the acquisition agent. See the [release installation guide](release/README.md) for bind mounts, reverse proxies, rootless Docker, and instrument-agent guidance.
+Open **[http://localhost:3280](http://localhost:3280)** and create your administrator account. No database setup or `.env` file is required. Secrets are generated automatically, and your library persists in `./data`.
 
-## Supported data
+**Installing on another machine?** Run `ssh -N -L 3280:127.0.0.1:3280 user@your-server` on your computer, then open the same address. The [installation guide](release/README.md) covers HTTPS access for your team, storage paths, rootless Docker, updates, and backups.
 
-MassSpec understands open formats directly and uses vendor readers or ProteoWizard where appropriate.
+To explore without instrument data, download [the small demo MGF](https://raw.githubusercontent.com/pgarrett-scripps/spectarr/main/examples/demo.mgf), choose **Import data**, and open the imported run's **Spectra** tab. [First-run walkthrough →](docs/getting-started.md)
 
-| Data | Import | Metadata and spectra | Conversion |
-| --- | --- | --- | --- |
-| mzML and gzipped mzML | Yes | Native streaming reader | Yes |
-| mzXML | Yes | Native streaming reader | Yes |
-| MGF | Yes | Native streaming reader | Yes |
-| MS2 | Yes | Native streaming reader | Yes |
-| Thermo RAW | Yes | Direct reader or mzML derivative | Yes |
-| Bruker `.d` | Atomic directory import | Direct reader or mzML derivative | Yes |
-| Other ProteoWizard vendor formats | Yes | mzML derivative | Yes |
+Docker socket access gives the converter control of its Docker daemon. Use a trusted host, and see the [deployment notes](release/README.md#docker-and-vendor-conversion) before opening access to others.
 
-Real-file acceptance currently covers Thermo RAW, a large vendor RAW fallback, an atomic Bruker `.d` acquisition, all four output formats, cancellation and retry, authenticated downloads, reclamation, and deterministic regeneration. See the [acceptance report](docs/acceptance-testing.md) for recorded checksums and spectrum counts.
+## Your data, on your storage
 
-## A readable library for existing tools
+Spectarr supports mzML, mzXML, MGF, MS2, Thermo RAW, and Bruker directory acquisitions, with reader and conversion support varying by format. Originals and derivatives remain ordinary files on your server. You can keep large artifacts on separate storage while the database stays on local disk.
 
-MassSpec keeps content-addressed source objects for integrity and a separate human-readable view for people and analysis software:
+[Formats and storage](docs/data-and-storage.md) · [Instrument collection](services/agent/README.md) · [Backups and recovery](docs/backup-integration.md)
 
-```text
-library/
-└── plasma-proteomics__7fc2a010/
-    ├── raw/
-    │   └── patient-01__sample-a__31d62c18.raw
-    ├── mzml/
-    │   └── patient-01__sample-a__31d62c18.mzML
-    ├── mgf/
-    └── .spectarr/
-        └── runs/
-            └── 31d62c18-....json
-```
+## Try it with your workflow
 
-On one filesystem, the readable files are hard links and do not consume duplicate space. Project and run manifests preserve stable identifiers and provenance for tools that scan the library directly.
+Spectarr is an early-stage project with published releases. Feedback from researchers, core facilities, and self-hosters is welcome, especially around setup, instrument compatibility, and everyday data organization. Validate your own vendor files and acquisition patterns before relying on unattended collection.
 
-## Designed for real lab workflows
-
-- Immutable source acquisitions with SHA-256 verification
-- Resumable and idempotent instrument uploads
-- Atomic handling of native vendor directories
-- Project, experiment, sample, and multiplexed-run metadata
-- Automatic QC summaries, TIC and BPC previews, and spectrum catalogs
-- Revisioned conversion profiles and desired-output automation
-- Project SDRF generation, validation, TSV round trips, and repository export
-- Derived-file reclamation without losing provenance or regeneration history
-- Password authentication, scoped API keys, worker credentials, and signed webhooks
-- Online SQLite backup with independent restore verification
-
-## Project status
-
-MassSpec is preparing its first public release. The release candidate passes the complete single-container rehearsal, including concurrent ingestion, forced restart recovery, conversion, spectrum reads, MCP initialization, signed webhook delivery, browser interaction, backup, and independent restore boot.
-
-The most useful feedback now is from core facilities and research groups willing to try MassSpec with real acquisition patterns and vendor files. Please use [GitHub Issues](https://github.com/pgarrett-scripps/spectarr/issues) for bugs, workflow gaps, and format compatibility reports. Security concerns should follow [SECURITY.md](SECURITY.md).
-
-<details>
-<summary><strong>Architecture and development notes</strong></summary>
-
-### Runtime shape
-
-```text
-Instrument folders -> Acquisition agent -> Resumable upload API
-                                             |
-Dashboard + REST + MCP -> MassSpec API -> SQLite + artifact storage
-                                             |
-                         +-------------------+------------------+
-                         |                                      |
-                  Metadata extractor                    MSConvert worker
-                         |                                      |
-                  QC and spectra                         mzML, mzXML,
-                  catalogs                              MGF, and MS2
-```
-
-The single container supervises the API, dashboard, converter, extractor, webhook worker, spectrum reader, and MCP server. ProteoWizard conversion uses the configured Docker-compatible socket. A rootless Docker daemon is recommended for deployed systems.
-
-### Source development
-
-Source builds use the sibling `msconvert-cli`, `mzmlpy`, and `spxtacular` repositories pinned in `DEPENDENCIES.env`. With those checkouts beside MassSpec:
-
-```bash
-make up
-```
-
-Run the complete component suite with:
-
-```bash
-make test
-```
-
-Run the container release gate with:
-
-```bash
-SPECTARR_RUN_E2E=true scripts/ci-integration.sh
-```
-
-The current suite covers the API, migrations, dashboard, converter, metadata extractor, acquisition agent, webhook worker, MCP contracts, concurrent SQLite recovery, and the browser release workflow.
-
-### Service endpoints
-
-- Dashboard: `http://localhost:3280`
-- REST API: `http://localhost:3280/api/v1`
-- OpenAPI: `http://localhost:3280/docs`
-- MCP: `http://localhost:8281/mcp`
-
-</details>
-
-## License
-
-MassSpec is available under the [Apache License 2.0](LICENSE).
-
-Read-only archive cataloging is available through the project’s **External files** tab. See the [local external inventory guide](docs/external-inventory.md).
-
-Dependency updates and the local security review are recorded in [the hardening report](docs/security-hardening-2026-09-25.md).
+[Open an issue](https://github.com/pgarrett-scripps/spectarr/issues) · [Contribute](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Apache 2.0 license](LICENSE)

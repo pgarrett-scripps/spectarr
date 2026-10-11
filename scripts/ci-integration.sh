@@ -56,6 +56,12 @@ mkdir -p "$backup_work/runtime-data" "$backup_work/imports" "$backup_work/manage
 } > "$env_file"
 
 compose=(docker compose --project-name "$project_name" --env-file "$env_file" -f "$repo_root/compose.yaml" -f "$repo_root/compose.backups.yaml")
+if [[ -n ${SPECTARR_MSCONVERT_RS_TEST_BINARY:-} ]]
+then
+  export SPECTARR_MSCONVERT_RS_BINARY="$SPECTARR_MSCONVERT_RS_TEST_BINARY"
+  export SPECTARR_SMOKE_NATIVE=true
+  compose+=(-f "$repo_root/release/compose.native.yaml")
+fi
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build
 integration_image=$("${compose[@]}" images -q spectarr)

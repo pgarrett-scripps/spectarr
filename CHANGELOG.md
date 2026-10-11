@@ -1,6 +1,24 @@
 # Changelog
 
-All notable changes to MassSpec will be documented in this file. Releases follow Semantic Versioning.
+All notable changes to Spectarr will be documented in this file. Releases follow Semantic Versioning.
+
+## 0.5.0 - Unreleased
+
+- Add an explicit native conversion backend with capability checks, immutable recipe provenance, cancellation, output verification, and a read-only Docker executable mount.
+- Reject unsupported native settings before jobs are queued, and preserve 64-bit native intensity defaults through recipe creation and updates.
+- Keep native profiles out of the ProteoWizard settings editor so their preservation policies cannot be discarded.
+- Upgrade mzMLPy to 0.10.1 and Spxtacular to 0.9.2 for metadata, MS2 output, and annotation corrections.
+- Refresh compatible Python and dashboard dependencies, fix the source-map-js audit finding, and update immutable runtime image digests.
+- Use uv-aware dependency updates for the backend lock and update the pinned setup-uv action.
+
+- Use Spectarr consistently in the public introduction, dashboard labels, browser title, and API title.
+
+- Replace the long README with a short project introduction, live demo screenshots, and a documentation index.
+- Document the first import, remote server access, HTTPS proxy configuration, storage, updates, and troubleshooting.
+- Keep MCP on loopback independently of the dashboard's network bind address.
+- Allow exact HTTPS origins through Compose configuration for reverse proxies.
+- Fail early when the configured Docker socket does not exist.
+- Keep automatic secret generation when copying either environment example, and validate release Compose without requiring an environment file.
 
 ## 0.4.0 - 2026-09-25
 

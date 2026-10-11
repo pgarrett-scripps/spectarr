@@ -2,6 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, clearAccessToken, downloadArtifact, getAccessToken, request, setAccessToken } from './client'
 
 describe('API client', () => {
+  it('retains the converter identity used to protect native profile settings', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { id: 'native', name: 'Native mzML', converter: 'msconvert-rs', output_format: 'mzML', parameters: {} },
+      { id: 'legacy', name: 'Standard mzML', output_format: 'mzML', parameters: {} }
+    ]), { status: 200 })))
+    const profiles = await api.processingProfiles()
+    expect(profiles.map(profile => profile.converter)).toEqual(['msconvert-rs', 'msconvert'])
+  })
+
   it('keeps acquisition time unknown, preserves zero observations, and exposes their provenance', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       runs: [{ id: 'r', acquiredAt: null, importedAt: '2026-09-24T12:00:00Z', created_at: '2026-09-24T12:00:00Z',

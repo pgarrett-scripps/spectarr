@@ -85,7 +85,7 @@ export function RunDetail() {
 
   if (!run) return <>
     <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>Run unavailable</span></nav>
-    <PageHeader title="Run unavailable" description="MassSpec could not load live data for this run." />
+    <PageHeader title="Run unavailable" description="Spectarr could not load live data for this run." />
     {resource.error && <ApiErrorBanner message={resource.error} onRetry={resource.refresh} />}
   </>
 

@@ -70,6 +70,8 @@ class ConversionResult:
     stderr: str = ""
     error: str | None = None
     scratch_path: str | None = None
+    converter_backend: str = "msconvert"
+    converter_report: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

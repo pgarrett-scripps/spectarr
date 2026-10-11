@@ -79,7 +79,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <aside ref={sidebar} className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`} aria-label="Workspace navigation">
       <div className="brand">
         <ChartNoAxesColumnIncreasing size={25} strokeWidth={1.5} aria-hidden="true" />
-        <div><strong>MassSpec</strong><span>Research data library</span></div>
+        <div><strong>Spectarr</strong><span>Research data library</span></div>
         <button className="icon-button sidebar-close" onClick={() => { setMenuOpen(false)
           menuButton.current?.focus() }} aria-label="Close navigation"><X size={20} /></button>
       </div>

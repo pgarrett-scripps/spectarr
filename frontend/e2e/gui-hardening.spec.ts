@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByLabel('Username').fill(username)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'MassSpec overview' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Spectarr overview' })).toBeVisible()
 })
 test.afterEach(async ({ page }) => { expect(errors.get(page) ?? []).toEqual([]) })
 
@@ -207,10 +207,10 @@ test('settings, users, scoped navigation, credentials, and clipboard errors', as
     await viewer.getByLabel('Username').fill(`viewer-${suffix}`)
     await viewer.getByLabel('Password').fill('gui-viewer-password-for-testing')
     await viewer.getByRole('button', { name: 'Sign in' }).click()
-    await expect(viewer.getByRole('heading', { name: 'MassSpec overview' })).toBeVisible()
+    await expect(viewer.getByRole('heading', { name: 'Spectarr overview' })).toBeVisible()
     for (const path of ['/agents', '/automation']) {
       await viewer.goto(new URL(path, page.url()).href)
-      await expect(viewer.getByRole('heading', { name: 'MassSpec overview' })).toBeVisible()
+      await expect(viewer.getByRole('heading', { name: 'Spectarr overview' })).toBeVisible()
     }
     await viewer.goto(new URL('/activity', page.url()).href)
     await expect(viewer.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible()

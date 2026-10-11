@@ -13,7 +13,7 @@ services:
       SPECTARR_LIBRARY_PROJECT_TEMPLATE: ${SPECTARR_LIBRARY_PROJECT_TEMPLATE:-{project_name}__{project_id:8}}
       SPECTARR_LIBRARY_FILENAME_TEMPLATE: ${SPECTARR_LIBRARY_FILENAME_TEMPLATE:-{run_name}__{sample_name}__{run_id:8}{extension}}
       SPECTARR_IMPORT_ROOTS: '["/imports"]'
-      SPECTARR_CORS_ORIGINS: '[]'
+      SPECTARR_CORS_ORIGINS: ${SPECTARR_CORS_ORIGINS:-[]}
       SPECTARR_TRUSTED_HOSTS: ${SPECTARR_TRUSTED_HOSTS:-["localhost"]}
       SPECTARR_WORKER_TOKEN: ${SPECTARR_WORKER_TOKEN:-}
       SPECTARR_SECRET_KEY: ${SPECTARR_SECRET_KEY:-}
@@ -39,10 +39,14 @@ services:
       - ${SPECTARR_DATA_DIR:-./data}:/data
       - ${SPECTARR_STORAGE_DIR:-${SPECTARR_DATA_DIR:-./data}/storage}:/data/storage
       - ${SPECTARR_IMPORT_DIR:-./imports}:/imports:ro
-      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - type: bind
+        source: ${DOCKER_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
     ports:
       - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_PORT:-3280}:8000"
-      - "${SPECTARR_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_MCP_PORT:-8281}:8001"
+      - "${SPECTARR_MCP_BIND_ADDRESS:-127.0.0.1}:${SPECTARR_MCP_PORT:-8281}:8001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request\nurllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 10s

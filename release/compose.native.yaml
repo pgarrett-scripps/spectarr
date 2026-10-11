@@ -1,0 +1,11 @@
+services:
+  spectarr:
+    environment:
+      SPECTARR_MSCONVERT_RS_BINARY: /opt/native/msconvert-rs
+    volumes:
+      - type: bind
+        source: ${SPECTARR_MSCONVERT_RS_BINARY:?Set an absolute path to a Linux x86-64 msconvert-rs executable}
+        target: /opt/native/msconvert-rs
+        read_only: true
+        bind:
+          create_host_path: false

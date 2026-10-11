@@ -13,7 +13,7 @@ export function Storage() {
   const [reclaiming, setReclaiming] = useState(false)
   const canReclaim = auth.user?.role === 'admin' || auth.user?.role === 'operator'
   return <>
-    <PageHeader title="Storage" description="Inspect the filesystem storage configured for this MassSpec instance." actions={canReclaim ? <button className="button button-danger" onClick={() => setReclaiming(true)}><Trash2 size={15} /> Clear generated files</button> : undefined} />
+    <PageHeader title="Storage" description="Inspect the filesystem storage configured for this Spectarr instance." actions={canReclaim ? <button className="button button-danger" onClick={() => setReclaiming(true)}><Trash2 size={15} /> Clear generated files</button> : undefined} />
     {resource.error && <ApiErrorBanner message={resource.error} onRetry={resource.refresh} />}
     <div className="storage-card-grid">
       {resource.data.map(location => {
@@ -25,11 +25,11 @@ export function Storage() {
         </article>
       })}
     </div>
-    <Panel title="Storage policy" subtitle="How MassSpec places and protects files">
+    <Panel title="Storage policy" subtitle="How Spectarr places and protects files">
       <div className="policy-grid">
         <Policy icon={<CheckCircle2 />} title="Search-ready directories" text="Every project has flat RAW, mzML, MGF, MS2, and other format folders." />
         <Policy icon={<Server />} title="Immutable originals" text="Readable files link to checksummed internal objects and are never modified in place." />
-        <Policy icon={<Database />} title="Repairable view" text="Run manifests and the complete filesystem view can be reconstructed from MassSpec metadata." />
+        <Policy icon={<Database />} title="Repairable view" text="Run manifests and the complete filesystem view can be reconstructed from Spectarr metadata." />
       </div>
     </Panel>
     {reclaiming && <ReclaimStorageDialog onClose={() => setReclaiming(false)} onReclaimed={resource.refresh} />}

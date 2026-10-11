@@ -22,7 +22,7 @@ import { Storage } from './pages/Storage'
 
 export default function App() {
   const auth = useAuth()
-  if (auth.loading) return <div className="app-loading"><span className="brand-mark"><FlaskConical size={18} /></span>Loading MassSpec</div>
+  if (auth.loading) return <div className="app-loading"><span className="brand-mark"><FlaskConical size={18} /></span>Loading Spectarr</div>
   if (!auth.user) return <Login />
   return <Layout><Routes>
     <Route path="/" element={<Overview />} />

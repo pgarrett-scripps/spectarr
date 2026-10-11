@@ -253,6 +253,39 @@ def main() -> int:
     if hashlib.sha256(converted).hexdigest() != output.get("sha256"):
         raise RuntimeError("Converted artifact checksum does not match its record")
 
+    native_output_id = None
+    if os.getenv("SPECTARR_SMOKE_NATIVE") == "true":
+        native_recipe = json_call("POST", "/recipes", {
+            "name": f"Native smoke {suffix}", "converter": "msconvert-rs",
+            "output_format": "mzML", "parameters": {"compression_level": 0},
+        }, token)
+        native_job = json_call("POST", f"/runs/{run['id']}/derivatives", {
+            "recipe_id": native_recipe["id"], "input_artifact_id": artifact["id"],
+        }, token)
+        native_job = wait_for(
+            "native mzML conversion",
+            lambda: json_call("GET", f"/jobs/{native_job['id']}", token=token),
+            lambda value: value.get("state") in {"succeeded", "failed", "cancelled"},
+            180,
+        )
+        if native_job.get("state") != "succeeded":
+            raise RuntimeError(f"Native conversion did not succeed: {native_job}")
+        native_output_id = native_job["output_artifact_id"]
+        native_output = json_call("GET", f"/artifacts/{native_output_id}", token=token)
+        _status, native_bytes, _headers = call("GET", f"/artifacts/{native_output_id}/download", token=token)
+        if hashlib.sha256(native_bytes).hexdigest() != native_output["sha256"]:
+            raise RuntimeError("Native download checksum does not match its record")
+        metadata = native_output["metadata_json"]
+        report = metadata["converter_report"]
+        if (
+            native_output["parent_artifact_id"] != artifact["id"]
+            or metadata["converter_backend"] != "msconvert-rs"
+            or metadata["recipe_snapshot"]["parameters"]["intensity_precision"] != 64
+            or report["conversion"]["input_sha256"] != artifact["sha256"]
+            or metadata["converter_image"] != f"msconvert-rs@sha256:{report['binary_sha256']}"
+        ):
+            raise RuntimeError("Native conversion provenance did not preserve its source and recipe")
+
     delivery = wait_for(
         "webhook delivery",
         lambda: json_call("GET", "/webhook-deliveries", token=token),
@@ -268,6 +301,7 @@ def main() -> int:
         "run_id": run["id"],
         "artifact_id": artifact["id"],
         "converted_artifact_id": output_id,
+        "native_artifact_id": native_output_id,
         "mcp": "ok",
         "spectrum_reader": "ok",
         "webhook_delivery_count": len(delivery),

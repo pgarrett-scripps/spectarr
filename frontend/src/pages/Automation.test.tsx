@@ -9,13 +9,22 @@ afterEach(() => { cleanup()
   vi.resetAllMocks() })
 const advanced = { kind: 'peak_picking', algorithm: 'cwt', ms_levels: [1], signal_to_noise: 2 }
 const profile: ProcessingProfile = { id: 'standard', name: 'Standard mzML', enabled: true, system: true, revision: 1, outputFormat: 'mzML', createdAt: '', updatedAt: '', parameters: { filters: [advanced], mzPrecision: 64, intensityPrecision: 32, compression: 'zlib', indexed: true } }
-function setup() {
+function setup(selectedProfile = profile) {
   vi.mocked(api.automationRules).mockResolvedValue([])
-  vi.mocked(api.processingProfiles).mockResolvedValue([profile])
+  vi.mocked(api.processingProfiles).mockResolvedValue([selectedProfile])
   vi.mocked(api.projects).mockResolvedValue([])
   vi.mocked(api.instruments).mockResolvedValue([])
   render(<Automation />)
 }
+
+it('keeps native settings out of the ProteoWizard editor while allowing enable changes', async () => {
+  setup({ ...profile, converter: 'msconvert-rs', name: 'Native mzML' })
+  expect(await screen.findByRole('button', { name: 'Edit' })).toBeDisabled()
+  expect(screen.getByText(/native, configured through the API/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Disable Native mzML' }))
+  await waitFor(() => expect(api.updateProcessingProfile).toHaveBeenCalledWith('standard', { enabled: false }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
 
 it('creates a metadata-only rule after all processing profiles are cleared', async () => {
   setup()

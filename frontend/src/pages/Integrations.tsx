@@ -70,7 +70,7 @@ export function Integrations() {
     {error && !creatingWebhook && <div className="message-banner" role="alert">{error}</div>}
     <div className="integration-grid">
       <Panel title="REST API" subtitle="Versioned access to library data and operations">
-        <div className="integration-status"><span className="integration-icon"><Braces size={23} /></span><div><strong>MassSpec API</strong><span>{health.data ? `Version ${health.data.version}` : 'Health unavailable'}</span></div><span className={`health health-${health.data?.status === 'ok' ? 'healthy' : 'offline'}`}><i />{health.data?.status ?? 'offline'}</span></div>
+        <div className="integration-status"><span className="integration-icon"><Braces size={23} /></span><div><strong>Spectarr API</strong><span>{health.data ? `Version ${health.data.version}` : 'Health unavailable'}</span></div><span className={`health health-${health.data?.status === 'ok' ? 'healthy' : 'offline'}`}><i />{health.data?.status ?? 'offline'}</span></div>
         <div className="endpoint"><code>{apiBase}</code><button className="icon-button" aria-label="Copy API URL" onClick={() => void copy('api', apiBase)}>{copied === 'api' ? <Check size={15} /> : <Clipboard size={15} />}</button></div>
         <div className="integration-links"><a className="button button-secondary" href={`${docsBase}/docs`}><BookOpen size={15} /> API docs</a><a className="button button-secondary" href={`${docsBase}/openapi.json`}>OpenAPI JSON</a></div>
       </Panel>

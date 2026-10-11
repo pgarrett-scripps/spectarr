@@ -257,7 +257,7 @@ function ProjectMetadataEditor({ projectId }: { projectId: string }) {
 
   if (!project) return <>
     <nav className="breadcrumb" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><ChevronRight size={13} /><span>Metadata unavailable</span></nav>
-    <PageHeader eyebrow="Project metadata" title="Project metadata unavailable" description="MassSpec could not load this project or its repository metadata." />
+    <PageHeader eyebrow="Project metadata" title="Project metadata unavailable" description="Spectarr could not load this project or its repository metadata." />
     {error && <ApiErrorBanner message={error} onRetry={() => void load()} />}
   </>
 

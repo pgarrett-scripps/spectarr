@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByLabel('Username').fill(process.env.SPECTARR_E2E_USERNAME ?? 'release-admin')
   await page.getByLabel('Password').fill(process.env.SPECTARR_E2E_PASSWORD ?? 'release-rehearsal-admin-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'MassSpec overview' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Spectarr overview' })).toBeVisible()
 })
 async function headers(page: Page) {
   return { Authorization: `Bearer ${await page.evaluate(() => sessionStorage.getItem('spectarr_access_token'))}` }
@@ -210,7 +210,7 @@ test('search, view switching, missing routes, and expired sessions recover', asy
   await page.screenshot({ path: testInfo.outputPath('run-summary.png') })
   await page.goto('/missing-gui-page')
   await page.getByRole('link', { name: 'Back to overview' }).click()
-  await expect(page.getByRole('heading', { name: 'MassSpec overview' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Spectarr overview' })).toBeVisible()
   await page.route('**/api/v1/projects?**', route => route.fulfill({ status: 401, json: { detail: 'Expired GUI session' } }))
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Projects', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()

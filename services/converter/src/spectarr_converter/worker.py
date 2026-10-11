@@ -246,9 +246,9 @@ class ApiConversionWorker:
             recipe_revision = overrides.pop("recipe_revision", recipe_definition.get("revision", 1))
             overrides.pop("force_nonce", None)
             overrides.pop("recipe_fingerprint", None)
-            if recipe_definition.get("converter") != "msconvert":
-                raise ValueError("Only the msconvert converter is supported")
-            if recipe_definition.get("converter_version") and not self.converter.image.endswith(
+            if recipe_definition.get("converter") not in {"msconvert", "msconvert-rs"}:
+                raise ValueError("Only the msconvert converter and explicit msconvert-rs backend are supported")
+            if recipe_definition.get("converter") == "msconvert" and recipe_definition.get("converter_version") and not self.converter.image.endswith(
                 f":{recipe_definition['converter_version']}"
             ):
                 raise ValueError("Recipe converter version does not match the pinned worker image")
@@ -277,6 +277,8 @@ class ApiConversionWorker:
                 "metadata_json": json.dumps(
                     {
                         "converter_image": result.image,
+                        "converter_backend": result.converter_backend,
+                        "converter_report": result.converter_report,
                         "converter_library_version": result.converter_version,
                         "converter_command": result.command,
                         "duration_seconds": result.duration_seconds,
