@@ -25,11 +25,26 @@ def compose_service(request, tmp_path):
                    "--env-file", str(env_file or os.devnull), "-f", str(ROOT / request.param)]
         if native:
             command.extend(["-f", str(ROOT / "release/compose.native.yaml")])
+        # Probe how this Compose version serializes an explicit false value.
+        probe = tmp_path / "compose-probe.json"
+        probe.write_text(json.dumps({"services": {"spectarr": {"volumes": [{
+            "type": "bind", "source": str(tmp_path / "probe"),
+            "target": "/compose-false-probe", "bind": {"create_host_path": False},
+        }]}}}))
+        command.extend(["-f", str(probe)])
         result = subprocess.run(
             [*command, "config", "--format", "json"],
             env=environment, check=True, capture_output=True, text=True, timeout=10,
         )
-        return json.loads(result.stdout)["services"]["spectarr"]
+        service = json.loads(result.stdout)["services"]["spectarr"]
+        probe_mount = next(mount for mount in service["volumes"]
+                           if mount["target"] == "/compose-false-probe")
+        if "create_host_path" not in probe_mount["bind"]:
+            for mount in service["volumes"]:
+                if mount["type"] == "bind":
+                    mount["bind"].setdefault("create_host_path", False)
+        service["volumes"].remove(probe_mount)
+        return service
     return resolve
 
 
